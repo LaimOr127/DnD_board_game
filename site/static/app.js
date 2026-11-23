@@ -803,11 +803,26 @@ function drawPromises() {
     sections.push(btn("Скачать выписку", savePromises));
   content.replaceChildren(...sections);
 }
+let controlsKey = "";
 function controls() {
   const area = $("controls"),
     s = state.scene,
     p = state.party,
     host = state.host;
+  // A friend's signature or a new story paragraph must not close an open travel form.
+  const key = JSON.stringify([
+    state.code,
+    host,
+    mine(),
+    s,
+    s ? state.story.id : null,
+    p.realm,
+    p.weatherDue,
+    p.fightDue,
+    p.dealt,
+  ]);
+  if (key === controlsKey) return;
+  controlsKey = key;
   const list = el("div", null, "stack");
   if (state.you.heroId && s) {
     const t = s.tokens.find((t) => t.kind === "hero" && t.ref === mine());
