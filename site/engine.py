@@ -211,7 +211,8 @@ def weapon_of(item):
 
 
 def load_rules():
-    raw = (ROOT / "design" / "rules.md").read_text(encoding="utf-8")
+    raw = "\n".join((ROOT / "design" / filename).read_text(encoding="utf-8")
+                    for filename in ("rules.md", "promises.md"))
     chunks = re.split(r"(?m)^(?=# )", raw)
     out = []
     for chunk in chunks:
@@ -305,6 +306,12 @@ def new_table():
         "heroes": {h["id"]: blank_hero(h["id"]) for h in HERO_CARDS},
         "scene": None, "log": [], "model": False, "rng": random.SystemRandom(), "test_dice": False,
     }
+
+
+def campaign_stamp(table, seat, hero=None):
+    party = table["party"]
+    return {"day": party["day"], "chapter": party["chapter"], "realm": realms[party["realm"] - 1][0],
+            "player": table["seats"][seat]["name"], "hero": HERO_BY[hero]["name"] if hero else ""}
 
 
 def bump(table):
@@ -1008,6 +1015,8 @@ def do_travel(table, seat, action):
         return fail(table, "Сначала закройте поле. Порталом из боя не уходят.")
     if party["weatherDue"]:
         return fail(table, "Сначала решите погоду.")
+    if party["fightDue"]:
+        return fail(table, "Сначала разыграйте дорожную стычку и закройте её на столе.")
     dest = int(action.get("dest") or 0)
     if not 1 <= dest <= 10 or not connected(party["realm"], dest):
         return fail(table, "Между этими областями нет дороги.")

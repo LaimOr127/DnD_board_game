@@ -1,5 +1,6 @@
 """Shared read-aloud pages for the printed campaign. The server keeps unopened pages."""
 import engine as E
+import promises
 import roadside
 
 
@@ -129,7 +130,7 @@ def echoes(table, s):
             side = table["heroes"][hid]["fork"]
             if side in ("a", "b"):
                 lines.append(PERSONAL[hid][side == "b"])
-    return lines
+    return lines + promises.echoes(s)
 
 
 def visible(table):
@@ -170,6 +171,9 @@ def visible(table):
             choices = choices + [("widows", "Вызвать Берту и трёх вдов с бирками")]
         if page == "heart" and roadside.heard(s, 9, "rest") and not s.get("usedSilence"):
             choices = [("silence", "Взять паузу Эра · один раз отменить сигнал")] + choices
+    if page not in ("bell", "gate", "heart", "epilogue") and party["fightDue"]:
+        choices = []
+        prompt += " Сначала разыграйте дорожную стычку на поле или отметьте её исход с бумажного стола."
     reports = roadside.chronicle(s)
     arrival = "Эпилог" if page == "epilogue" else f"Глава {party['chapter']}"
     news = [r["news"] for r in reports if r["arrival"] == arrival]
@@ -178,6 +182,8 @@ def visible(table):
         "prompt": prompt, "choices": [{"id": k, "label": v} for k,v in choices],
         "echoes": echoes(table, s), "history": list(s["history"]), "ending": page == "epilogue",
         "meeting": roadside.current(table, s), "roadJournal": reports, "news": news,
+        "promises": promises.view(table, s), "verdictReceipt": s.get("verdictReceipt"),
+        "milestones": s.get("milestones", []),
     }
 
 
@@ -241,16 +247,20 @@ def finish_field(table, seat, victory, kind):
         E.end_scene(table, seat, {"victory": victory})
 
 
-def end_index(s, party, choice):
+def verdict_result(s, party, choice):
     decisions = s["decisions"]
     if choice == "seal":
-        crown = decisions.get("original") == "crown" or 4 in party["glory"]
-        return 0 if crown else 1
+        original = decisions.get("original") == "crown"
+        realms = [E.realms[i][0] for i, score in enumerate(party["glory"]) if score == 4]
+        reason = "Оригинал у Эйры — " + ("да" if original else "нет") + ". Королевства со славой 4 — " + (", ".join(realms) or "ни одного") + ". Для королевского голоса достаточно любого из этих условий."
+        return (0 if original or realms else 1), reason
     if choice == "publish":
-        return 2 if party["street"] else 3
+        return (2 if party["street"] else 3), f"Голосов улицы при публикации — {party['street']}. Для совета семей нужен хотя бы один."
     if choice == "open":
-        return 4 if party["portals"].count("open") >= 2 else 5
-    return 6 if s.get("knighted") else 7
+        count = party["portals"].count("open")
+        return (4 if count >= 2 else 5), f"Открытых арок при размыкании — {count}. Для связи берегов нужны хотя бы две. След на карте ещё не открывает арку."
+    knighted = bool(s.get("knighted"))
+    return (6 if knighted else 7), "Посвящение в рыцари на слушании — " + ("есть." if knighted else "отсутствует.") + " От него зависит, признают ли дворы нового правителя."
 
 
 def postscript(s, party):
@@ -268,6 +278,15 @@ def postscript(s, party):
     return " ".join(lines)
 
 
+def chapter_totals(party):
+    labels = {"silver": "Серебро", "supplies": "Припасы", "seals": "Печати", "level": "Уровень",
+              "tide": "Прилив", "scars": "Шрамы", "suspicion": "Подозрение", "shards": "Осколки",
+              "street": "Голос улицы", "debts": "Армейские долги", "day": "День"}
+    totals = {label: party[key] for key, label in labels.items()}
+    totals.update({"Слава · " + r[0]: score for r, score in zip(E.realms, party["glory"])})
+    return totals
+
+
 def choose(table, seat, action):
     current = visible(table)
     choice = action.get("choice")
@@ -279,6 +298,10 @@ def choose(table, seat, action):
     s = table.setdefault("story", initial(table))
     page, party = s["page"], table["party"]
     next_page, after = "", options[choice]
+    closes_chapter = page in ("bell", "copies", "gate", "original", "verdict")
+    if closes_chapter:
+        stamp = E.campaign_stamp(table, seat)
+        before = chapter_totals(party)
 
     if page == "retry" and choice == "work":
         add_day(table)
@@ -405,15 +428,24 @@ def choose(table, seat, action):
         next_page = "retry" if choice == "retreat" else "verdict"
     elif page == "verdict":
         roadside.deliver(table, seat, s, epilogue=True)
-        s["ending"] = end_index(s, party, choice)
+        s["ending"], reason = verdict_result(s, party, choice)
+        s["verdictReceipt"] = {"choice": options[choice], "title": E.endings[s["ending"]][0],
+                               "reason": reason, "when": stamp}
         s["postscript"] = postscript(s, party)
         next_page = "epilogue"
 
+    promises.close_window(table, seat, s, page)
     if page != "records":
         s["decisions"][page] = choice
     s["page"] = next_page
     if party["chapter"] != current["chapter"]:
         roadside.deliver(table, seat, s)
+    if closes_chapter:
+        totals = chapter_totals(party)
+        s.setdefault("milestones", []).append({"when": stamp, "title": current["title"],
+            "choice": action["choice"], "label": options[action["choice"]], "result": after,
+            "changes": [{"name": name, "before": start, "after": totals[name]}
+                        for name, start in before.items() if totals[name] != start]})
     # Retries of the final encounter can be played indefinitely; the chronicle stays bounded.
     s["history"] = (s["history"] + [{"title": current["title"], "text": after}])[-32:]
     E.log(table, seat, "gm", after + " · " + visible(table)["title"])

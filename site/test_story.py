@@ -145,6 +145,9 @@ class StoryTests(unittest.TestCase):
                 result = story.choose(game, seat, {"scene":"verdict","choice":choice})
                 self.assertTrue(result["ok"])
                 self.assertEqual(E.endings[index][0], story.visible(game)["title"])
+                receipt = story.visible(game)["verdictReceipt"]
+                self.assertEqual((E.endings[index][0], "Лада"), (receipt["title"], receipt["when"]["player"]))
+                self.assertTrue(receipt["reason"])
 
 
 if __name__ == "__main__":

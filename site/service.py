@@ -1,12 +1,13 @@
 """One set of table permissions and actions for LAN and browser-hosted rooms."""
 import engine as E
+import promises
 import roadside
 import story
 
 
 PERSONAL = {"claim", "roll", "grow", "fork", "boon", "technique", "potion",
             "hp", "sparks", "pencil", "capstone", "release", "move", "note",
-            "equip", "condition", "help"}
+            "equip", "condition", "help", "promise"}
 SHARED = {"story", "enemies", "round", "reward", "seal", "travel", "weather",
           "rest", "lodge", "spawn", "scene", "end", "deal", "lever", "clearFight",
           "resource", "portal", "deed", "creatureHp", "bell", "roadFight", "meeting"}
@@ -25,6 +26,15 @@ def snapshot(table, sid):
 def narration(table, question):
     page = story.visible(table)
     q = question.lower().strip(" ?.!")
+    if ("обещан" in q or "поручен" in q or "слово нер" in q) and page["promises"]:
+        lines = []
+        for card in page["promises"]:
+            record = card["record"] or {}
+            lines.append(" ".join(filter(None, (card["name"] + ".", record.get("scene") or card["text"],
+                                                "" if "outcome" in record else card["route"]))))
+        return "\n".join(lines)
+    if page["verdictReceipt"] and any(w in q for w in ("финал", "развязк", "приговор")):
+        return page["verdictReceipt"]["reason"]
     if any(word in q for word in ("встреч", "попутчик", "на дороге")):
         meeting = page["meeting"]
         if meeting:
@@ -114,6 +124,8 @@ def act(table, sid, action):
         return {"ok": True}
     if op == "story":
         return story.choose(table, sid, action)
+    if op == "promise":
+        return promises.act(table, sid, table.get("story") or story.initial(table), action)
     if op == "meeting":
         return roadside.choose(table, sid, table.get("story") or story.initial(table), action)
     result = E.apply(table, sid, action)

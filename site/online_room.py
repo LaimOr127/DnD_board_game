@@ -49,6 +49,7 @@ def handle(raw):
                 "сцена": scene["text"][:1400], "вопрос сцены": scene["prompt"],
                 "варианты": [c["label"] for c in scene["choices"]],
                 "встреча в пути": scene["meeting"], "последние вести": scene["news"][-3:],
+                "обещания": [r["name"] + ". " + ((r["record"] or {}).get("scene") or r["text"] or r["route"]) for r in scene["promises"]],
                 "из книги": answer[:1100],
                 "недавние события": [row["text"][:180] for row in table["log"][-3:]],
             }

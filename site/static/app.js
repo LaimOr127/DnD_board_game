@@ -576,6 +576,9 @@ function renderGame() {
       $("storyBody").append(details("Остальные вести из королевств", ...notices.slice(1)));
   }
   $("storyBody").append(el("p", st.prompt, "prompt"));
+  if (st.verdictReceipt) {
+    $("storyBody").append(details("Почему выпал этот финал", el("p", st.verdictReceipt.reason)));
+  }
   $("choices").replaceChildren(
     ...st.choices.map((ch) =>
       state.host ? action(ch.label, { op: "story", scene: st.id, choice: ch.id }) : el("p", ch.label),
@@ -590,6 +593,10 @@ function renderGame() {
     ),
   );
   renderMeeting(st.meeting);
+  if ((st.promises || []).some((c) => c.record && !c.record.closed && c.choices.length)) {
+    $("storyBody").append(btn("Вручить поручение до завершения сцены", promiseDialog));
+  }
+  drawPromises();
   controls();
   $("lastLog").replaceChildren(...state.log.slice(-2).map(logLine));
 }
@@ -645,11 +652,156 @@ function roadJournal() {
         el("p", r.kingdom + " · глава " + r.chapter + " · " + r.npc, "meta"),
         el("p", r.choice),
         el("p", r.text),
+        ...(r.signed ? [el("p", stampText(r.signed), "meta")] : []),
         ...(r.witnesses.length ? [el("p", "Свидетели из отряда: " + r.witnesses.join(", "), "small")] : []),
         el("p", r.news ? r.arrival + ". " + r.news : "Весть придёт в следующей главе или в эпилоге.", "echo"),
       ),
     ),
   );
+}
+function stampText(mark) {
+  const who = mark.hero ? mark.hero + " (" + mark.player + ")" : "запись игрока " + mark.player;
+  return "Глава " + mark.chapter + " · день " + mark.day + " · " + mark.realm + " · " + who;
+}
+
+function promiseLines(card) {
+  const record = card.record;
+  if (!record) return [card.text, card.route];
+  const lines = ["Принято. " + stampText(record.taken)];
+  if (!record.closed) return [...lines, card.route, card.text].filter(Boolean);
+  lines.push(record.label + ". " + stampText(record.closed), record.scene);
+  if (record.changes.length) {
+    lines.push(...record.changes.map((c) => c.name + " " + c.before + " → " + c.after));
+  } else lines.push("Общие показатели не изменились.");
+  if (card.afterword) lines.push(card.afterword);
+  return lines;
+}
+
+function savePromises() {
+  const st = state.story;
+  const lines = ["Море имён · Книга обещаний", "Глава " + st.chapter + " · день " + state.party.day];
+  for (const card of (st.promises || []).filter((c) => c.record)) {
+    lines.push("", card.name, ...promiseLines(card));
+  }
+  for (const m of st.milestones || []) lines.push("", ...milestoneLines(m));
+  for (const r of st.roadJournal || []) {
+    lines.push("", r.title, r.kingdom + " · глава " + r.chapter + " · " + r.npc, r.choice, r.text);
+    if (r.signed) lines.push(stampText(r.signed));
+    if (r.witnesses.length) lines.push("Свидетели из отряда — " + r.witnesses.join(", "));
+    lines.push(r.news ? r.arrival + ". " + r.news : "Ожидается весть.");
+  }
+  if (st.verdictReceipt) {
+    const v = st.verdictReceipt;
+    lines.push("", v.title, v.choice, stampText(v.when), v.reason);
+  }
+  const url = URL.createObjectURL(
+    new Blob(["\uFEFF" + lines.join("\r\n")], { type: "text/plain;charset=utf-8" }),
+  );
+  const a = link("Скачать выписку", url);
+  a.download = "Море имён — книга обещаний.txt";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function milestoneLines(m) {
+  return [
+    m.title,
+    stampText(m.when),
+    m.label,
+    ...(m.result !== m.label ? [m.result] : []),
+    ...(m.changes.length
+      ? m.changes.map((c) => c.name + " " + c.before + " → " + c.after)
+      : ["Общие счётчики не изменились."]),
+  ];
+}
+
+function promiseDialog() {
+  const content = el("div");
+  content.id = "promisePages";
+  modal("Книга обещаний", content);
+  drawPromises();
+}
+
+function drawPromises() {
+  const content = $("promisePages");
+  if (!content || !dlg.open) return;
+  const st = state.story,
+    cards = st.promises || [],
+    saved = st.verdictReceipt;
+  const key = JSON.stringify([
+    cards,
+    saved,
+    st.milestones,
+    st.roadJournal,
+    mine(),
+    state.party.realm,
+    st.chapter,
+  ]);
+  if (content.dataset.view === key) return;
+  content.dataset.view = key;
+  const sections = cards.map((card) => {
+    const block = section(card.name, ...promiseLines(card).map((line) => el("p", line)));
+    const hero = mine();
+    if (hero && card.choices.length) {
+      const buttons = el("div", null, "stack");
+      for (const c of card.choices) {
+        buttons.append(
+          action(
+            c.label,
+            {
+              op: "promise",
+              parcel: card.key,
+              choice: c.id,
+              hero,
+              realm: state.party.realm,
+              chapter: st.chapter,
+            },
+            () => {
+              const heading = document.getElementById("promise-" + card.key);
+              if (heading) heading.focus();
+            },
+          ),
+        );
+      }
+      block.append(buttons);
+    } else if (card.choices.length)
+      block.append(el("p", "Чтобы расписаться, выберите своего героя.", "meta"));
+    const heading = block.querySelector("h3");
+    heading.id = "promise-" + card.key;
+    heading.tabIndex = -1;
+    return block;
+  });
+  if (!sections.length)
+    sections.push(
+      el(
+        "p",
+        "В книге пока нет принятых поручений. Неру можно встретить в Вельне на мирной остановке в главе I или II.",
+      ),
+    );
+  if (saved)
+    sections.push(
+      section(
+        "Запись о финале",
+        el("p", saved.title),
+        el("p", saved.choice),
+        el("p", stampText(saved.when), "meta"),
+        el("p", saved.reason),
+      ),
+    );
+  if (st.milestones?.length)
+    sections.push(
+      details(
+        "Итоги глав",
+        ...st.milestones.map((m) => {
+          const [title, ...lines] = milestoneLines(m);
+          return section(title, ...lines.map((l) => el("p", l)));
+        }),
+      ),
+    );
+  if (st.roadJournal?.length) sections.push(details("Решения в пути", roadJournal()));
+  if (saved || st.milestones?.length || st.roadJournal?.length || cards.some((c) => c.record))
+    sections.push(btn("Скачать выписку", savePromises));
+  content.replaceChildren(...sections);
 }
 function controls() {
   const area = $("controls"),
@@ -1128,6 +1280,7 @@ $("invite").onclick = invite;
 $("openDice").onclick = diceDialog;
 $("openGm").onclick = gmDialog;
 $("openLog").onclick = logDialog;
+$("openPromises").onclick = promiseDialog;
 $("openPrologue").onclick = () =>
   modal(
     "У брода",

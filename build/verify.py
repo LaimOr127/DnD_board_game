@@ -48,7 +48,7 @@ def main():
         mesh=trimesh.load_mesh(p)
         if not (mesh.is_watertight and mesh.is_winding_consistent and mesh.volume>0 and np.isfinite(mesh.vertices).all()):faults.append(p.parent.name+'/'+p.name)
     if faults:raise AssertionError(('STL',len(faults),faults))
-    expected=[7,14,27,8,2,34,12,5,8];pdfs=sorted(OUT.glob('*.pdf'));assert len(pdfs)==9;pagecounts={};tmp=ROOT/'qa-temp';tmp.mkdir(exist_ok=True);allthumb=[]
+    expected=[7,18,27,8,2,34,12,5,8];pdfs=sorted(OUT.glob('*.pdf'));assert len(pdfs)==9;pagecounts={};tmp=ROOT/'qa-temp';tmp.mkdir(exist_ok=True);allthumb=[]
     for ix,p in enumerate(pdfs):
         d=pymupdf.open(p);assert len(d)==expected[ix],(p,len(d));pagecounts[p.name]=len(d);alltext=''
         for pi,pg in enumerate(d):

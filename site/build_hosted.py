@@ -49,8 +49,8 @@ def main(output):
     shutil.copyfile(WORLD / "01 Правила.pdf", output / "rules.pdf")
     (static / "lobby.json").write_text(json.dumps(engine.compendium(None), separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
     with zipfile.ZipFile(static / "world.zip", "w", zipfile.ZIP_DEFLATED) as bundle:
-        for path in ("site/engine.py", "site/story.py", "site/roadside.py", "site/service.py", "site/online_room.py", "build/foes.py",
-                     "build/party.py", "build/world.py", "build/edicts.py", "design/rules.md"):
+        for path in ("site/engine.py", "site/story.py", "site/roadside.py", "site/promises.py", "site/service.py", "site/online_room.py", "build/foes.py",
+                     "build/party.py", "build/world.py", "build/edicts.py", "design/rules.md", "design/promises.md"):
             bundle.write(ROOT / path, path)
 
     figures = output / "figures"

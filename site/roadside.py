@@ -68,7 +68,7 @@ MEETINGS = {
             "Таш прислал дощечку с двумя зарубками. В Красном Яру на случай прорыва ворот готовы две лодки. В одну сядет Лада, во вторую поместятся погонщики с грузом."),
          "charter": Path("Показать огни отцу Фена и потребовать открытой переправы",
             "Фен первым зовёт отца по имени. На глазах у детей тот выдаёт разрешение на семейный перевоз, а карту фарватера прикалывает к своей таможенной доске.",
-            "В Нижнем Рейде теперь продают билеты в оба конца. Таш присылает отряду первые две монеты сборов. Старого тайного прохода закрыт. У воды дежурит катер.", "silver")}),
+            "В Нижнем Рейде теперь продают билеты в оба конца. Таш присылает отряду первые две монеты сборов. Старый тайный проход закрыт. У воды дежурит катер.", "silver")}),
     5: Meeting(
         "Письмо с двумя сгибами", "Дона, почтальонка Двух Лодок",
         "Дона встречает отряд с письмом без конверта. Бумага сложена вчетверо. «Откроете вдоль — ответит одна. Поперёк — другая. Помогите решить, чей сегодня черёд».",
@@ -177,7 +177,8 @@ def choose(table, seat, story, action):
     elif view["stage"] == "open" and isinstance(choice, str) and choice in MEETINGS[realm].paths:
         path = MEETINGS[realm].paths[choice]
         witnesses = [h for h in MEETINGS[realm].voices if h in E.claimed(table)]
-        story["meetings"][key].update(choice=choice, chapter=table["party"]["chapter"], witnesses=witnesses)
+        story["meetings"][key].update(choice=choice, chapter=table["party"]["chapter"], witnesses=witnesses,
+                                      signed=E.campaign_stamp(table, seat))
         E.log(table, seat, "gm", f"{view['title']}. {path.label}. {path.immediate}")
     else:
         return E.fail(table, "Это действие встречи уже недоступно.")
@@ -196,7 +197,8 @@ def chronicle(story):
         entries.append({"kingdom": E.realms[realm - 1][0], "title": meeting.title, "npc": meeting.npc,
                         "chapter": record["chapter"], "choice": path.label, "text": path.immediate,
                         "witnesses": [E.HERO_BY[h]["name"] for h in record["witnesses"]],
-                        "news": record.get("news", ""), "arrival": record.get("arrival", "")})
+                        "news": record.get("news", ""), "arrival": record.get("arrival", ""),
+                        "signed": record.get("signed")})
     return entries
 
 

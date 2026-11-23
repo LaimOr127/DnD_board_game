@@ -87,9 +87,9 @@ def decks():
         for i in range(0,len(keys),9):sheet(c,keys[i:i+9],keys[i]+' — '+keys[min(i+8,len(keys)-1)])
         c.save()
 
-def parse_book():
+def parse_book(filename='rules.md'):
     pages=[]
-    for line in (ROOT/'design/rules.md').read_text(encoding='utf8').splitlines():
+    for line in (ROOT/'design'/filename).read_text(encoding='utf8').splitlines():
         if line.startswith('# '):pages.append([line[2:],[]]);continue
         if line:pages[-1][1].append(('h' if line.startswith('## ') else 'p',line.removeprefix('## ')))
     return pages
@@ -116,6 +116,7 @@ def rules():
     c=Canvas(str(OUT/'01 Правила.pdf'),pagesize=A4);c.setTitle('Море имён · Правила');
     for i,(title,blocks) in enumerate(parse_book()):bookpage(c,title,blocks,i+1,'Правила стола',art=icon(['bell','rune','sword','heart','coin','helm','portal','eye','lantern','horn','crown','book'][i],i))
     for j,(title,blocks) in enumerate(extra_rules):bookpage(c,title,blocks,13+j,'Справочник')
+    for j,(title,blocks) in enumerate(parse_book('promises.md')):bookpage(c,title,blocks,13+len(extra_rules)+j,'Книга обещаний')
     c.save()
 def campaign():
     pages=[]
