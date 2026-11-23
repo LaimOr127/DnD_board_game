@@ -164,6 +164,7 @@ async function accept(s) {
     s.party.deeds,
     s.party.portals,
     s.party.opened,
+    s.party.glory,
   ]);
   if (key !== bookKey) {
     bookKey = key;
@@ -195,6 +196,7 @@ async function command(action, next) {
       "reward",
       "travel",
       "roll",
+      "meeting",
     ];
     const cmd = guarded.includes(action.op) ? { ...action, rev: state.rev } : action;
     const result = await request("/api/action", { method: "POST", body: cmd });
@@ -566,11 +568,14 @@ function renderGame() {
   );
   $("pageTag").textContent = st.ending ? "Эпилог" : "Читать вслух";
   $("storyTitle").textContent = st.title;
-  $("storyBody").replaceChildren(
-    el("p", st.text, "read-aloud"),
-    ...st.echoes.map((x) => el("p", x, "echo")),
-    el("p", st.prompt, "prompt"),
-  );
+  $("storyBody").replaceChildren(el("p", st.text, "read-aloud"), ...st.echoes.map((x) => el("p", x, "echo")));
+  if (st.news?.length) {
+    const notices = st.news.map((text) => el("p", text, "echo"));
+    $("storyBody").append(el("h3", "Вести с дороги"), notices[0]);
+    if (notices.length > 1)
+      $("storyBody").append(details("Остальные вести из королевств", ...notices.slice(1)));
+  }
+  $("storyBody").append(el("p", st.prompt, "prompt"));
   $("choices").replaceChildren(
     ...st.choices.map((ch) =>
       state.host ? action(ch.label, { op: "story", scene: st.id, choice: ch.id }) : el("p", ch.label),
@@ -578,10 +583,73 @@ function renderGame() {
   );
   if (!state.host && st.choices.length) $("choices").append(el("p", hostTip, "small muted"));
   $("choices").append(
-    btn("Озвучить сцену", () => speak([st.text, ...st.echoes, st.prompt].join(" ")), "text-button"),
+    btn(
+      "Озвучить сцену",
+      () => speak([st.text, ...st.echoes, ...(st.news || []), st.prompt].join(" ")),
+      "text-button",
+    ),
   );
+  renderMeeting(st.meeting);
   controls();
   $("lastLog").replaceChildren(...state.log.slice(-2).map(logLine));
+}
+
+function focusMeeting() {
+  $("meetingTitle")?.focus();
+}
+
+function renderMeeting(meeting) {
+  const panel = $("roadMeeting");
+  panel.hidden = !meeting;
+  $("meetShortcut").hidden = !meeting;
+  if (!meeting) {
+    panel.replaceChildren();
+    return;
+  }
+  $("meetShortcut").onclick = focusMeeting;
+  const title = el("h3", meeting.title);
+  title.id = "meetingTitle";
+  title.tabIndex = -1;
+  const choices = el("div", null, "stack");
+  const options =
+    meeting.stage === "rumour" ? [{ id: "listen", label: "Остановиться и выслушать" }] : meeting.choices;
+  for (const pick of options) {
+    const cmd = { op: "meeting", realm: meeting.realm, chapter: state.story.chapter, choice: pick.id };
+    choices.append(state.host ? action(pick.label, cmd, focusMeeting) : el("p", pick.label));
+  }
+  if (!state.host && options.length) choices.append(el("p", hostTip, "small muted"));
+  panel.replaceChildren(
+    el("p", "Встреча в пути · " + meeting.kingdom, "section-kicker"),
+    title,
+    el("p", meeting.npc, "meta"),
+    el("p", meeting.text, "read-aloud"),
+    ...meeting.voices.map((line) => el("p", line, "echo")),
+    choices,
+    btn(
+      "Озвучить встречу",
+      () => speak([meeting.npc, meeting.text, ...meeting.voices, ...options.map((p) => p.label)].join(". ")),
+      "text-button",
+    ),
+  );
+  if (meeting.stage === "settled")
+    panel.append(btn("Открыть дорожный журнал", () => logDialog(true), "text-button"));
+}
+
+function roadJournal() {
+  const entries = state.story.roadJournal || [];
+  if (!entries.length) return el("p", "Здесь появятся решения, принятые во встречах по пути.", "muted");
+  return box(
+    ...entries.map((r) =>
+      section(
+        r.title,
+        el("p", r.kingdom + " · глава " + r.chapter + " · " + r.npc, "meta"),
+        el("p", r.choice),
+        el("p", r.text),
+        ...(r.witnesses.length ? [el("p", "Свидетели из отряда: " + r.witnesses.join(", "), "small")] : []),
+        el("p", r.news ? r.arrival + ". " + r.news : "Весть придёт в следующей главе или в эпилоге.", "echo"),
+      ),
+    ),
+  );
 }
 function controls() {
   const area = $("controls"),
@@ -960,13 +1028,17 @@ function gmDialog() {
     out,
   );
 }
-function logDialog() {
+function logDialog(openRoad = false) {
   const text = el("textarea");
   text.name = "entry";
   text.maxLength = 280;
   text.required = true;
   const list = box(...state.log.slice().reverse().map(logLine));
   list.id = "openLogList";
+  const roadEntries = box(roadJournal());
+  roadEntries.id = "openRoadJournal";
+  const roads = details("Дорожный журнал", roadEntries);
+  roads.open = openRoad === true;
   modal(
     "Журнал стола",
     makeForm(
@@ -974,6 +1046,7 @@ function logDialog() {
       field("Записать событие с бумажного стола", text),
       submit("Добавить запись"),
     ),
+    roads,
     details("Решения кампании", ...state.story.history.map((x) => section(x.title, el("p", x.text)))),
     list,
   );
@@ -1016,8 +1089,10 @@ async function poll() {
   try {
     const old = state.rev;
     await accept((await request("/api/state?since=" + old)).state);
-    if (state.rev !== old && dlg.open && $("openLogList"))
+    if (state.rev !== old && dlg.open && $("openLogList")) {
       $("openLogList").replaceChildren(...state.log.slice().reverse().map(logLine));
+      $("openRoadJournal").replaceChildren(roadJournal());
+    }
   } catch (e) {
     if (!document.hidden) note(e.message || "Связь со столом прервана. Повторяем подключение.");
   } finally {

@@ -48,6 +48,7 @@ def handle(raw):
                 "фигуры": [(t["name"], t.get("zone"), t.get("hp")) for t in battlefield.get("tokens", [])[:18]],
                 "сцена": scene["text"][:1400], "вопрос сцены": scene["prompt"],
                 "варианты": [c["label"] for c in scene["choices"]],
+                "встреча в пути": scene["meeting"], "последние вести": scene["news"][-3:],
                 "из книги": answer[:1100],
                 "недавние события": [row["text"][:180] for row in table["log"][-3:]],
             }

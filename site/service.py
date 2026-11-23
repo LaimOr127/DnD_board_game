@@ -1,5 +1,6 @@
 """One set of table permissions and actions for LAN and browser-hosted rooms."""
 import engine as E
+import roadside
 import story
 
 
@@ -8,7 +9,7 @@ PERSONAL = {"claim", "roll", "grow", "fork", "boon", "technique", "potion",
             "equip", "condition", "help"}
 SHARED = {"story", "enemies", "round", "reward", "seal", "travel", "weather",
           "rest", "lodge", "spawn", "scene", "end", "deal", "lever", "clearFight",
-          "resource", "portal", "deed", "creatureHp", "bell", "roadFight"}
+          "resource", "portal", "deed", "creatureHp", "bell", "roadFight", "meeting"}
 
 
 def snapshot(table, sid):
@@ -24,8 +25,17 @@ def snapshot(table, sid):
 def narration(table, question):
     page = story.visible(table)
     q = question.lower().strip(" ?.!")
+    if any(word in q for word in ("встреч", "попутчик", "на дороге")):
+        meeting = page["meeting"]
+        if meeting:
+            return "\n".join([meeting["npc"] + ". " + meeting["text"], *meeting["voices"],
+                              *(c["label"] for c in meeting["choices"])])
+        return "Встреча на дороге доступна в мирной остановке до эпилога. Прежние решения сохранены в дорожном журнале."
+    if q == "вести" or any(word in q for word in ("какие вести", "вести из", "вести с дороги", "весть", "последств", "отклик")):
+        received = [r["news"] for r in page["roadJournal"] if r["news"]]
+        return "\n".join(received) if received else "Из пройденных королевств пока нет вестей."
     if not q or any(w in q for w in ("зачитай", "где мы", "что происходит", "что дальше", "расскажи сцену")):
-        return "\n".join(filter(None, (page["text"], *page.get("echoes", []), page.get("prompt", ""))))
+        return "\n".join(filter(None, (page["text"], *page["echoes"], *page["news"], page["prompt"])))
     return E.local_voice(table, question)
 
 
@@ -104,7 +114,14 @@ def act(table, sid, action):
         return {"ok": True}
     if op == "story":
         return story.choose(table, sid, action)
+    if op == "meeting":
+        return roadside.choose(table, sid, table.get("story") or story.initial(table), action)
     result = E.apply(table, sid, action)
+    if op == "travel" and result.get("road") == 2:
+        history = table.get("story") or story.initial(table)
+        meeting = roadside.current(table, history)
+        if meeting and meeting["stage"] == "rumour":
+            roadside.choose(table, sid, history, {"realm": meeting["realm"], "chapter": table["party"]["chapter"], "choice": "listen"})
     if result["ok"] and op == "round":
         story.siege_wave(table, sid)
     if result["ok"] and op == "deal":

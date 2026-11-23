@@ -92,6 +92,8 @@ class GameServer(ThreadingHTTPServer):
             raise Problem(429, "Ведущий отвечает другому игроку. Повторите вопрос через несколько секунд.")
         try:
             prompt = E.prompt_for(table, question) + "\nОткрытая страница: " + service.narration(table, "зачитай") + "\nПравило или подсказка: " + fallback
+            if service.story.visible(table)["meeting"]:
+                prompt += "\nВстреча в пути: " + service.narration(table, "встреча")
             if self.local_model:
                 url = "http://127.0.0.1:11434/api/generate"
                 body = {"model": self.local_model, "prompt": prompt, "stream": False}

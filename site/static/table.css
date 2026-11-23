@@ -853,3 +853,19 @@ summary {
 #map {
   height: auto;
 }
+#roadMeeting {
+  border-top: 1px solid var(--edge);
+  margin-top: 1.6rem;
+  padding-top: 1.35rem;
+}
+#meetingTitle {
+  margin: 0.35rem 0;
+  font-size: clamp(1.55rem, 3vw, 2.1rem);
+}
+#roadMeeting .read-aloud,
+#roadMeeting .stack {
+  margin-block: 0.8rem;
+}
+#roadMeeting .text-button + .text-button {
+  margin-left: 1rem;
+}

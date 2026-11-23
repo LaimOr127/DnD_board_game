@@ -1045,7 +1045,7 @@ def do_travel(table, seat, action):
     extra = (" " + " ".join(notes)) if notes else ""
     shown = f" d6={face}." if face else ""
     log(table, seat, "road", f"День {party['day']}. Путь в {name}.{shown} {road}.{extra}")
-    return {"ok": True}
+    return {"ok": True, "road": face}
 
 
 def apply_road(table, face):

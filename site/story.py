@@ -1,5 +1,6 @@
 """Shared read-aloud pages for the printed campaign. The server keeps unopened pages."""
 import engine as E
+import roadside
 
 
 # Location, testimony and physical clue. Only the witness at the current stop speaks.
@@ -104,6 +105,7 @@ def record_page(s, party, table):
 
 
 CALLBACKS = {
+    "boats": "Гир узнаёт на пороге суда запах смолы. Лада пришла со спасёнными погонщиками, а Фен, так и не привыкший стоять на суше, придерживается за косяк.",
     "ribbon": "Лада перевязывает найденной лентой узелок с хлебом. Дома всегда оставляли вторую порцию; руки помнят это даже в самый дурной день.",
     "spoon": "Лодочник ударяет запасной ложкой о медный котелок. Через воду ему отвечает девочка. Они успели завести собственную переправную азбуку.",
     "court": "У копии из канцелярии есть входящий номер. Стражник вынужден назвать его вслух и впустить свидетеля.",
@@ -162,10 +164,20 @@ def visible(table):
             choices = [("altar", "На поле подняли первый набор имён")] + choices
         if page == "heart" and "cancelKeeperSignal" in party["flags"]:
             choices = [("cancel", "Предъявить оригинал · отменить текущий сигнал")] + choices
+        if page == "gate" and roadside.heard(s, 4, "pilots"):
+            choices = choices + [("boats", "При прорыве вызвать лодки Таша для Лады и обоза")]
+        if page == "hearing" and roadside.heard(s, 2, "testify"):
+            choices = choices + [("widows", "Вызвать Берту и трёх вдов с бирками")]
+        if page == "heart" and roadside.heard(s, 9, "rest") and not s.get("usedSilence"):
+            choices = [("silence", "Взять паузу Эра · один раз отменить сигнал")] + choices
+    reports = roadside.chronicle(s)
+    arrival = "Эпилог" if page == "epilogue" else f"Глава {party['chapter']}"
+    news = [r["news"] for r in reports if r["arrival"] == arrival]
     return {
         "id": story_id(s, party["realm"]), "chapter": party["chapter"], "title": title, "text": text,
         "prompt": prompt, "choices": [{"id": k, "label": v} for k,v in choices],
         "echoes": echoes(table, s), "history": list(s["history"]), "ending": page == "epilogue",
+        "meeting": roadside.current(table, s), "roadJournal": reports, "news": news,
     }
 
 
@@ -335,10 +347,12 @@ def choose(table, seat, action):
         else:
             party["suspicion"] = min(4, party["suspicion"]+1)
             add_day(table)
-            if choice == "lada":
+            if choice in ("lada", "boats"):
                 clue(party, "свидетельство Лады")
-            else:
+            if choice in ("wagon", "boats"):
                 party["supplies"] = min(6, party["supplies"]+3)
+            if choice == "boats":
+                after = "Ворота пали. Фен забрал Ладу в первую лодку, погонщики перенесли три припаса во вторую. На слушание вместе придут Лада и возница."
         seal(table)
         party["chapter"], next_page = 4, "courtRoad"
     elif page == "courtRoad":
@@ -346,6 +360,9 @@ def choose(table, seat, action):
     elif page == "hearing":
         if choice == "square":
             add_day(table)
+        if choice == "widows":
+            party["street"] += 1
+            after = "Берта распорола передник на глазах у Эйры. Каждая вдова положила бирку на стол и сама назвала мужа. Их показания вошли в протокол. Отряд получил голос улицы."
         if choice == "serve":
             if party["glory"][0] >= 3:
                 s["knighted"] = True
@@ -373,6 +390,10 @@ def choose(table, seat, action):
         table["scene"]["keeperBound"] = False
         next_page = "heart"
         after = "Первый набор снят с алтаря. Хранитель теперь может покинуть затвор."
+    elif page == "heart" and choice == "silence":
+        s["usedSilence"] = True
+        next_page = "heart"
+        after = "Камертон Эра снял один сигнал Хранителя. Пропустите его эффект на поле. В наступившей тишине с последней скамьи впервые слышно дыхание."
     elif page == "heart" and choice == "cancel":
         party["flags"].remove("cancelKeeperSignal")
         next_page = "heart"
@@ -383,6 +404,7 @@ def choose(table, seat, action):
             seal(table)
         next_page = "retry" if choice == "retreat" else "verdict"
     elif page == "verdict":
+        roadside.deliver(table, seat, s, epilogue=True)
         s["ending"] = end_index(s, party, choice)
         s["postscript"] = postscript(s, party)
         next_page = "epilogue"
@@ -390,6 +412,8 @@ def choose(table, seat, action):
     if page != "records":
         s["decisions"][page] = choice
     s["page"] = next_page
+    if party["chapter"] != current["chapter"]:
+        roadside.deliver(table, seat, s)
     # Retries of the final encounter can be played indefinitely; the chronicle stays bounded.
     s["history"] = (s["history"] + [{"title": current["title"], "text": after}])[-32:]
     E.log(table, seat, "gm", after + " · " + visible(table)["title"])
