@@ -1,0 +1,47 @@
+.mn-board {
+  overflow: hidden;
+  border: 1px solid #546968;
+  border-radius: .5rem;
+  background: #1c3535;
+  color: #faf0da;
+  color-scheme: dark;
+  font: 1rem/1.45 system-ui, sans-serif;
+}
+.mn-stage {
+  position: relative;
+  height: clamp(280px, 36vw, 510px);
+  isolation: isolate;
+  overflow: hidden;
+  background: radial-gradient(ellipse at 52% 37%, #46645d, #294a47 55%, #203d3b 85%);
+}
+.mn-stage canvas { position: absolute; display: block; width: 100%; height: 100%; inset: 0; }
+.mn-stage canvas[hidden] { display: none; }
+.mn-overlay { touch-action: none; cursor: grab; }
+.mn-overlay:active { cursor: grabbing; }
+.mn-caption, .mn-tools {
+  position: absolute;
+  z-index: 1;
+  color: #fff5df;
+  background: #183332f5;
+  box-shadow: 0 1px 4px #152b2959;
+  border: 1px solid #75887c;
+  border-radius: .35rem;
+}
+.mn-caption {
+  top: .55rem; left: .55rem; max-width: calc(100% - 1.1rem);
+  padding: .27rem .55rem; font-size: .875rem; pointer-events: none;
+}
+.mn-tools { right: .55rem; bottom: .55rem; display: flex; padding: .12rem; gap: 1px; }
+.mn-tools button {
+  padding: 0; margin: 0; min-width: 2.2rem; min-height: 2.2rem; width: 2.2rem; height: 2.2rem;
+  border: 0; border-radius: .18rem; background: transparent;
+  color: #fff4db; font: 1.3rem/1.1 system-ui, sans-serif; cursor: pointer; touch-action: manipulation;
+}
+.mn-tools button:hover { color: #16342e; background: #edd5a1; }
+.mn-stage:focus-visible, .mn-tools button:focus-visible, .mn-key summary:focus-visible { outline: 3px solid #f6ce74; outline-offset: -3px; }
+.mn-key { border-top: 1px solid #627670; padding: 0 .75rem; margin: 0; background: #213937; }
+.mn-key summary { padding: .55rem 0; cursor: pointer; color: #f1ead7; font-size: .9rem; }
+.mn-key ul { margin: .1rem 0 .75rem; padding-left: 1.2rem; font-size: .9rem; color: #ede7d6; }
+@media (pointer: coarse) {
+  .mn-tools button { width: 2.75rem; height: 2.75rem; }
+}

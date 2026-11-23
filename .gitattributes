@@ -6,3 +6,9 @@
 *.png binary
 *.stl binary
 *.zip binary
+*.webp binary
+*.js text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.cmd text eol=crlf
+site/static/vendor/three.module.js -whitespace

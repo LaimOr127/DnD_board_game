@@ -3,3 +3,6 @@ __pycache__/
 qa-temp/
 *.pyc
 *.zip
+site/dist/
+site/data/
+site/.sites-runtime/
