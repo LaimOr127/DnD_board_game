@@ -942,6 +942,12 @@ def enemy_phase(table, seat):
             return fail(table, "Переправа уже решилась. Запишите исход первой главы.")
         if scene.get("enemyRound") == scene["round"]:
             return fail(table, "Гончие уже ходили в этом раунде.")
+        for hid, applied in list(scene.get("bellBreach", {}).items()):
+            if applied < scene["round"]:
+                conditions = table["heroes"][hid]["conditions"]
+                if "надлом" in conditions:
+                    conditions.remove("надлом")
+                del scene["bellBreach"][hid]
         scene["enemyRound"] = scene["round"]
     g = graph(scene["links"])
     if scene.get("door"):
@@ -1891,12 +1897,6 @@ def next_round(table, seat):
             token = hero_token(table, hid)
             if token:
                 token["shield"] = 0
-        for hid, applied in list(scene.get("bellBreach", {}).items()):
-            if applied < scene["round"]:
-                conditions = table["heroes"][hid]["conditions"]
-                if "надлом" in conditions:
-                    conditions.remove("надлом")
-                del scene["bellBreach"][hid]
         scene.pop("bellTurns", None)
     scene["round"] += 1
     for token in scene["tokens"]:

@@ -61,8 +61,13 @@ class FirstChapterTest(unittest.TestCase):
 
     def test_third_round_timeout(self):
         self.act(self.host,"story",ok=False,scene="bell",choice="empty")
-        for _ in range(3):
-            self.advance()
+        self.move(self.host,"H01",2)
+        self.advance((4,4))
+        hero = self.table["heroes"]["H01"]
+        self.assertEqual((6,["надлом"]),(hero["hp"],hero["conditions"]))
+        self.advance((4,4))
+        self.assertEqual(4,hero["hp"])
+        self.advance((4,4))
         self.assertEqual(["empty"],[c["id"] for c in story.visible(self.table)["choices"]])
         self.act(self.guest,"bell",do="hold",ok=False)
         self.act(self.host,"story",scene="bell",choice="empty")
