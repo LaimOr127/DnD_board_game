@@ -57,7 +57,7 @@ def geometry(parts):
     return meshes
 
 
-def arrange(parts, meshes, columns, gap=GAP):
+def arrange(parts, meshes, columns, gap=GAP, margin=MARGIN):
     rows = list(batched(parts, columns))
     depth = [max(meshes[part].extents[1] for part in row) for row in rows]
     y = (BED + sum(depth) + gap * (len(rows) - 1)) / 2
@@ -73,7 +73,7 @@ def arrange(parts, meshes, columns, gap=GAP):
         y -= gap
     bounds = [np.array(offset) + meshes[part].bounds for part, offset in placements]
     for low, high in bounds:
-        if (low[:2] < MARGIN).any() or (high[:2] > BED - MARGIN).any() or high[2] > HEIGHT:
+        if (low[:2] < margin).any() or (high[:2] > BED - margin).any() or high[2] > HEIGHT:
             raise ValueError(f'Model outside the reserved print area: {low}–{high}')
     for (low, high), (other_low, other_high) in combinations(bounds, 2):
         axis_gap = np.maximum(other_low - high, low - other_high)
