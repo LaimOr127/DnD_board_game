@@ -1385,8 +1385,6 @@ function diceDialog(targetId, bell) {
     out,
   );
   modal(bell === "hold" ? "Удержать коромысло" : bell === "song" ? "Спеть с Ладой" : "Бросок кубиков", f);
-  const last = state.log.filter((r) => r.dice).at(-1);
-  if (last) out.append(diceResult(last));
 }
 function diceResult(row) {
   const d = row.dice;
