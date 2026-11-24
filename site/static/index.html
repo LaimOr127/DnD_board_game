@@ -14,7 +14,7 @@
       <div class="wrap mast-inner">
         <a href="#table" class="brand"><span class="sigil" aria-hidden="true">✥</span>Море имён</a>
         <nav aria-label="Разделы стола" class="topnav">
-          <a href="#table">Игровой стол</a><a href="#heroes">Герои</a><a href="#rules">Правила</a>
+          <a href="#table">Игровой стол</a><a href="#atlas">Атлас</a><a href="#heroes">Герои</a><a href="#rules">Правила</a>
         </nav>
         <button id="roomButton" class="nav-action" type="button">Мои столы</button>
       </div>
@@ -96,6 +96,7 @@
               <span id="position"></span>
             </div>
             <div id="map"></div>
+            <a class="atlas-map-link" href="#atlas">Открыть атлас королевств</a>
             <details class="realm-info">
               <summary>Места и фигуры</summary>
               <div id="locations"></div>
@@ -131,6 +132,19 @@
               <div id="lastLog"></div>
               <button id="openLog" class="text-button" type="button">Открыть журнал</button>
             </section>
+          </aside>
+        </div>
+      </section>
+      <section id="atlas" class="wrap library" hidden aria-labelledby="atlasTitle">
+        <h1 id="atlasTitle">Атлас десяти королевств</h1>
+        <div class="atlas-layout">
+          <div id="atlasMap"></div>
+          <aside class="atlas-index" aria-label="Указатель атласа">
+            <h2>Указатель</h2>
+            <label>Найти королевство, жителя или существо
+              <input id="atlasSearch" type="search" name="atlasSearch" placeholder="Например, Три Ивы" autocomplete="off" />
+            </label>
+            <div id="atlasResults" class="atlas-results"></div>
           </aside>
         </div>
       </section>

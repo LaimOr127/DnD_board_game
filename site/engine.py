@@ -11,6 +11,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "build"))
 
 from foes import families, foes  # noqa: E402
+from extras import local as local_cases  # noqa: E402
+from field_guide import GUIDES  # noqa: E402
 from party import heroes as HERO_ROWS  # noqa: E402
 from party import items as ITEM_ROWS  # noqa: E402
 from party import schools  # noqa: E402
@@ -538,10 +540,12 @@ def realm_public(i, party):
         "id": i + 1, "name": row[0], "people": row[1], "capital": row[2], "village": row[3],
         "biome": row[4], "monarch": row[5], "npc": row[6], "want": row[7], "case": row[12],
         "x": coords[i][0], "y": coords[i][1], "families": FAMILY_NAMES[i * 3:(i + 1) * 3],
+        "fieldGuide": GUIDES[i + 1],
         "glory": party["glory"][i], "portal": portal, "visited": opened, "deedOpen": deed,
     }
     if deed:
         data["dungeon"] = row[8]
+        data["floors"] = local_cases[i][6].split(" / ")
         data["relic"] = row[9]
         data["pact"] = row[10]
         data["outcomes"] = row[13]

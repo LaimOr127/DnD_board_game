@@ -1,4 +1,4 @@
-import math, json, re, random, sys
+import io, math, json, re, random, sys
 from pathlib import Path
 from PIL import Image,ImageDraw
 from reportlab.pdfgen.canvas import Canvas
@@ -13,7 +13,8 @@ from party import heroes,schools,items
 from foes import foes,families
 from extras import local,weather
 from edicts import peoples
-from appendix import perks,levels,landmarks,extra_rules
+from appendix import perks,levels,landmarks
+from field_guide import GUIDES
 from art import sprite,icon,mix
 from maps import OUT,ROOT,worldmap,fields
 sys.path.append(str(ROOT/'site'))
@@ -38,10 +39,9 @@ def fitted(c,x,y,t,w,size,face='GB',color=INK):
     s=min(size,w/max(1,pdfmetrics.stringWidth(t,face,1)));txt(c,x,y,t,s,face,color);return s
 def img(c,im,x,y,w,h):c.drawImage(ImageReader(im),x,y,w,h,mask='auto')
 def art_for(key):
-    v=int(key[1:])-1
-    if key[0]=='H':return sprite('hero'+str(v//3),v,v//3)
-    if key[0]=='I':return icon(items[v][4],v)
-    z=(MOBS if key[0]=='M' else BOSSES)[v];return sprite(z['body'],z['seed'],z['area'],key[0]=='B')
+    folder = 'portraits' if key.startswith('H') else 'cards'
+    with Image.open(ROOT/'site'/'static'/'assets'/folder/(key+'.webp')) as source:
+        return source.convert('RGB')
 
 def deckdata():
     for i,h in enumerate(heroes):
@@ -54,15 +54,19 @@ deckdata()
 
 def card(c,key,x,y):
     name,kind,area,stats,blocks,foot=cards[key];w=63*mm;h=88*mm;cp=pal[area];c.saveState();c.translate(x,y);rect(c,0,0,w,h,'#f8f2df');stroke(c,'#53655a');c.setLineWidth(.5);c.rect(.8,.8,w-1.6,h-1.6);rect(c,1,h-17,w-2,16,INK);txt(c,7,h-11,key,8.4,'SB','#ffe2a2');txt(c,w-7,h-11,kind,7,'SB','#f1e8cd','right');fitted(c,7,h-34,name,w-14,14.3)
-    top=h-38;ah=46 if key[0]=='B' else 58;rect(c,5,top-ah,w-10,ah,mix(cp,'#eaead2',.70));rng=random.Random(key);stroke(c,mix(cp,'#e1e2c8',.45));c.setLineWidth(.45)
-    for step in range(3):
-        line=c.beginPath();line.moveTo(5,top-ah+7+step*4)
-        for xx in range(5,174,7):line.lineTo(xx,top-ah+5+step*4+rng.random()*9)
-        c.drawPath(line)
-    for ind in range(3):c.circle(w/2,top-ah*.52,15+ind*5,stroke=1)
-    spriteim=art_for(key)
-    factor=4;big=spriteim.resize((spriteim.width*factor,spriteim.height*factor),Image.Resampling.NEAREST);sw=ah*spriteim.width/spriteim.height;img(c,big,(w-sw)/2,top-ah,sw,ah)
-    for side in (12,w-14):txt(c,side,top-ah/2-1,'✦' if False else '•',8,'SB',cp)
+    top = h-38
+    # Grant spare space to the illustration once the full rules fit at a comfortable size.
+    text_height = sum(10.8 + len(wrap(body,w-16,'S',7.8))*9.25 for _,body in blocks)
+    ah = min(122, max(46 if key.startswith('B') else 58, top-42-text_height))
+    rect(c,5,top-ah,w-10,ah,PAPER)
+    art = art_for(key)
+    scale = min((w-14)/art.width, (ah-3)/art.height)
+    dw, dh = art.width*scale, art.height*scale
+    art.thumbnail((max(1,round(dw*4)),max(1,round(dh*4))), Image.Resampling.LANCZOS)
+    encoded = io.BytesIO()
+    art.save(encoded, format='JPEG', quality=90, optimize=True)
+    encoded.seek(0)
+    img(c, encoded, (w-dw)/2, top-(ah+dh)/2, dw, dh)
     ypos=top-ah-13;rect(c,5,ypos-2,w-10,14,INK);txt(c,w/2,ypos+2,stats,7.35,'SB','#f4e8ca','center');start=ypos-12;bottom=16;avail=start-bottom
     def layout(size):return [(label,wrap(body,w-16,'S',size)) for label,body in blocks]
     for z in range(85,56,-1):
@@ -96,9 +100,75 @@ def parse_book(filename='rules.md'):
         if line:pages[-1][1].append(('h' if line.startswith('## ') else 'p',line.removeprefix('## ')))
     return pages
 
-def bookpage(c,title,blocks,num,series,over='',art=None):
+LESSONS = {
+    1: ('H07', 'Кто держит верёвку? Кто поговорит с Ладой? Разделим работу, пока лодочник ещё помнит берег.'),
+    2: ('H01', 'Я могу рассмотреть доску без броска. Перепрыгнуть с неё в лодку — другое дело. Куда я попаду, если промахнусь?'),
+    3: ('H16', 'Я в зоне 2, гончая в 4. Иду к ней по линии. Теперь клевец достаёт.'),
+    22: ('H04', 'Шаг я ещё не делал. А действие? Действием я держу подпорку. Значит, отваром в этот ход займётся товарищ.'),
+    23: ('H16', 'Сойка помогла! Оставлю тройку и пятёрку. С моей Мощью получится десять.'),
+    24: ('H14', 'Две строки в зеркале легко спутать. На первой — где искать правило, на второй — что мы решили за нашим столом.'),
+}
+
+
+def book_image(c, art, x, y, width, height):
+    if art.mode == 'RGB':
+        art = art.copy()
+        art.thumbnail((round(width*4), round(height*4)), Image.Resampling.LANCZOS)
+        encoded = io.BytesIO()
+        art.save(encoded, format='JPEG', quality=90)
+        encoded.seek(0)
+        img(c, encoded, x, y, width, height)
+    else:
+        # Preserve the hard edges and transparency of the small printed symbols.
+        symbol = art.resize((art.width*4, art.height*4), Image.Resampling.NEAREST)
+        img(c, symbol, x, y, width, height)
+
+
+def lesson_panel(c, top, page, hero_id, words):
+    c.saveState()
+    portrait = art_for(hero_id)
+    index = int(hero_id[1:]) - 1
+    w = A4[0] - 86
+    rect(c, 43, top-67, w, 72, '#e1e9da')
+    rect(c, 43, top-67, 3, 72, '#63846b')
+    scale = min(80/portrait.width, 66/portrait.height)
+    pw, ph = portrait.width*scale, portrait.height*scale
+    book_image(c, portrait, 49+(80-pw)/2, top-64+(66-ph)/2, pw, ph)
+    txt(c, 142, top-12, heroes[index][0] + '  /  ' + heroes[index][1], 9, 'SB', MUTED)
+    text_width = w-219 if page in (3,23) else w-119
+    for line_no,line in enumerate(wrap('«'+words+'»', text_width, 'G', 12)):
+        txt(c, 142, top-30-line_no*15, line, 12, 'G', INK)
+    if page == 3:
+        stroke(c, '#63846b')
+        c.setLineWidth(2)
+        c.line(465, top-26, 518, top-26)
+        for x, zone in [(465, '2'), (518, '4')]:
+            clr(c, PAPER)
+            c.circle(x, top-26, 12, fill=1)
+            txt(c, x, top-30, zone, 13, 'SB', INK, 'center')
+        txt(c, 491.5, top-52, 'ОДИН ШАГ', 7, 'SB', MUTED, 'center')
+    if page == 23:
+        # The crossed die is discarded. The other two pips totals are kept.
+        for x, face in [(453,1), (485,3), (517,5)]:
+            stroke(c, '#63846b')
+            clr(c, PAPER if face>1 else '#e1e9da')
+            c.setLineWidth(1.2)
+            c.roundRect(x-12, top-38, 24, 24, 4, fill=1)
+            points = [(0,0)]
+            if face >= 3: points.extend([(-6,6), (6,-6)])
+            if face == 5: points.extend([(6,6), (-6,-6)])
+            clr(c, INK)
+            for dx, dy in points: c.circle(x+dx, top-26+dy, 1.8, stroke=0, fill=1)
+            if face == 1: c.line(x-13, top-39, x+13, top-13)
+        txt(c, 501, top-52, '3 + 5', 9, 'SB', MUTED, 'center')
+    c.restoreState()
+    return top-86
+
+
+def bookpage(c,title,blocks,num,series,over='',art=None,lesson=None):
     c.setPageSize(A4);w,h=A4;rect(c,0,0,w,h,PAPER);rect(c,0,h-8,w,8,INK);txt(c,43,h-42,'М О Р Е   И М Ё Н     /     '+series.upper(),8,'SB',MUTED);txt(c,w-43,h-42,f'{num:02}',12,'GB',GOLD,'right');stroke(c,LINE);c.line(43,h-53,w-43,h-53);fitted(c,42,h-97,title,w-84,28,'GB');top=h-128
     if over:txt(c,43,top+5,over,9,'SB',GOLD);top-=17
+    if lesson:top=lesson_panel(c,top,num,*lesson)
     for p in range(125,84,-1):
         size=p/10;lay=[];total=0
         for typ,body in blocks:
@@ -111,27 +181,36 @@ def bookpage(c,title,blocks,num,series,over='',art=None):
         for l in ll:txt(c,44,yy,l,size+1 if typ=='h' else size,'SB' if typ=='h' else 'G',mix(GOLD,INK,.37) if typ=='h' else INK);yy-=step
         yy-=after
     if art and yy>139:
-        aa=art.resize((art.width*4,art.height*4),Image.Resampling.NEAREST);ww=min(100,(yy-47)*aa.width/aa.height);img(c,aa,(w-ww)/2,50,ww,ww*aa.height/aa.width)
+        ww=min(100,(yy-47)*art.width/art.height)
+        book_image(c,art,(w-ww)/2,50,ww,ww*art.height/art.width)
     stroke(c,LINE);c.line(43,34,w-43,34);txt(c,43,20,'ДЕСЯТЬ КОРОН   /   ИГРОВОЕ ИЗДАНИЕ   •   16+',6.8,'SB',MUTED);txt(c,w-42,20,'Море имён     /     '+str(num),8,'G',MUTED,'right');bid=str(num);c.bookmarkPage(bid);c.addOutlineEntry(title,bid);c.showPage()
 
 def rules():
     c=Canvas(str(OUT/'01 Правила.pdf'),pagesize=A4);c.setTitle('Море имён · Правила');
-    for i,(title,blocks) in enumerate(parse_book()):bookpage(c,title,blocks,i+1,'Правила стола',art=icon(['bell','rune','sword','heart','coin','helm','portal','eye','lantern','horn','crown','book'][i],i))
-    for j,(title,blocks) in enumerate(extra_rules):bookpage(c,title,blocks,13+j,'Справочник')
-    for j,(title,blocks) in enumerate(parse_book('promises.md')):
-        section = 'Игровой стол' if title in ('Как оставить стол до следующей встречи','Свободный стол для другой игры') else 'Книга обещаний'
-        bookpage(c,title,blocks,13+len(extra_rules)+j,section)
+    sections = parse_book() + parse_book('promises.md')
+    icons = {4:'heart',5:'coin',6:'helm',7:'portal',8:'eye',9:'lantern',10:'horn',11:'crown',12:'book'}
+    for num,(title,blocks) in enumerate(sections,1):
+        if num <= 3 or num >= 22:
+            series = 'Первый вечер'
+        elif 15 <= num <= 19:
+            series = 'Книга обещаний'
+        elif 20 <= num <= 21:
+            series = 'Игровой стол'
+        else:
+            series = 'Правила стола'
+        art = icon(icons[num],num-1) if num in icons else None
+        bookpage(c,title,blocks,num,series,art=art,lesson=LESSONS.get(num))
     c.save()
 def campaign():
     pages=[]
     def page(title,blocks,over='',art=None):pages.append((title,blocks,over,art))
-    page('Хартия последнего берега',[('p','Кампания для 2–6 героев. Ведущему можно читать всё; кооперативному столу — сначала пролог и только открытые записи. Пять глав составляют основную историю, каждый регион можно исследовать отдельно.'),('h','Три времени моря'),('p','87 лет назад море ворвалось в долину. Десять корон подняли Затвор и отдали ему имена умерших — память стала платой за сушу. 19 лет назад последние списки закончились. Казначеи начали подмешивать имена живых. Девять дней назад колокол у Трёх Ив позвонил сам: механизм получил одинаковое имя дважды и стал проверять весь реестр.'),('h','Три стороны, у каждой есть резон'),('p','Эйра, королева Вельна, хочет удержать берега до эвакуации; знает, что чиновники вписывают живых. Братство Пустых Ложек хочет обнародовать список, но в нём есть имена детей. Соляная Лига умеет связать новые острова арками и рассчитывает владеть переправами. Ни одна сторона не считает себя служанкой моря.'),('h','Что знают герои'),('p','Каждый способен помнить одну вымаранную вещь. До старта назовите её соседу справа. В финале сосед решает, как память о ней изменит выбранное послесловие. Сюжетные следы всегда доступны; кости определяют цену, темп и друзей.'),('h','Навигация'),('p','Главы: 2–6. Финалы: 7. Атлас и 30 местных дел: 8–17. Закрытый ключ порталов: 18. Дорожные встречи: 19. Личные истории героев: 20–25. Народы и обычаи: 26–27. Поручения H01–H18: 28–45, по порядку номеров. Отдельно: правила, тактические поля, колоды M/B/H/I и лист первого вечера.')],art=icon('portal'))
+    page('Хартия последнего берега',[('p','Кампания для 2–6 героев. Ведущему можно читать всё; кооперативному столу — сначала пролог и только открытые записи. Пять глав составляют основную историю, каждый регион можно исследовать отдельно.'),('h','Три времени моря'),('p','87 лет назад море ворвалось в долину. Десять корон подняли Затвор и отдали ему имена умерших — память стала платой за сушу. 19 лет назад последние списки закончились. Казначеи начали подмешивать имена живых. Девять дней назад колокол у Трёх Ив позвонил сам: механизм получил одинаковое имя дважды и стал проверять весь реестр.'),('h','Три стороны, у каждой есть резон'),('p','Эйра, королева Вельна, хочет удержать берега до эвакуации; знает, что чиновники вписывают живых. Братство Пустых Ложек хочет обнародовать список, но в нём есть имена детей. Соляная Лига умеет связать новые острова арками и рассчитывает владеть переправами. Ни одна сторона не считает себя служанкой моря.'),('h','Что знают герои'),('p','Каждый способен помнить одну вымаранную вещь. До старта назовите её соседу справа. В финале сосед решает, как память о ней изменит выбранное послесловие. Сюжетные следы всегда доступны; кости определяют цену, темп и друзей.'),('h','Навигация'),('p','Главы: 2–6. Финалы: 7. Атлас и 30 местных дел: 8–17. Закрытый ключ порталов: 18. Дорожные встречи: 19. Личные истории героев: 20–25. Народы и обычаи: 26–27. Поручения H01–H18: 28–45, по порядку номеров. Полевой справочник, открытый игрокам: 46–55. Отдельно: правила, тактические поля, колоды M/B/H/I и лист первого вечера.')],art=icon('portal'))
     for i,a in enumerate(acts):page(a[0],[('h','Прочитать вслух'),('p',a[1]),('h','Раскладка'),('p',a[2]),('h','Выбор'),('p',a[3]),('h','Что меняется'),('p',a[4]),('h','Последняя строка'),('p',a[5])],f'ОСНОВНАЯ ИСТОРИЯ  /  ГЛАВА {i+1} ИЗ 5',art=art_for(['M001','H04','H16','I11','B009'][i]))
     eb=[]
     for name,cond,end in endings:eb.extend([('h',name+'  /  '+cond),('p',end)])
     eb.append(('p','Послесловие: при трёх и более шрамах назовите потерянную деревню. При непогашенном долге армия требует ваш знак. При раскрытом заговоре бывший противник станет первым летописцем. Сочетайте подходящие последствия.'));page('Восемь судеб побережья',eb)
     for i,(rr,ex) in enumerate(zip(realms,local)):
-        n,folk,cap,vill,biome,roy,npc,want,entr,rel,pact,port,quest,choice,gain=rr; aa,bb,cc,dd,ee,ff,levels=ex; page(n,[('h','Двор и деревня'),('p',f'{roy.capitalize()} принимает в столице {cap}; деревня — {vill}. Здесь живут {folk}. {npc.capitalize()} {want}. Один и тот же народ может жить по обе стороны границы; происхождение не задаёт характер героя.'),('h','01  /  '+quest),('p',choice+' '+gain+' За основное местное дело +1 слава здесь; первое выполнение даёт опыт по общим правилам.'),('h','02  /  '+aa),('p',bb+' Награда: '+cc),('h','03  /  '+dd),('p',ee+' Награда: '+ff),('h','Вход: '+entr),('p','Этажи I → V: '+levels+'. На каждом примените соответствующую опасность глубины с листа тактики. В архиве хранится '+rel+'. На V вместо боя допустима сделка: '+pact+'. Получите награду за достижение, даже если договорились.'),('h','Местные колоды и выходы'),('p',f'Особая вылазка «{landmarks[i]}»: фиксированная T {levels[i]}; её обычная встреча даёт 1 осколок дополнительно за первую победу. Общая колода: M{i*30+1:03}–M{(i+1)*30:03}; B{i*10+1:03}–B{(i+1)*10:03}. Дороги: '+', '.join(f'{(b if a==i+1 else a):02}' for a,b in edges if i+1 in (a,b))+'. Реликвия: '+items[30+i][0]+f' (I{31+i:02}).')],f'ОБЛАСТЬ {i+1:02}   /   '+biome.upper(),art=art_for(f'B{i*10+1:03}'))
+        n,folk,cap,vill,biome,roy,npc,want,entr,rel,pact,port,quest,choice,gain=rr; aa,bb,cc,dd,ee,ff,floors=ex; page(n,[('h','Двор и деревня'),('p',f'{roy[:1].upper()+roy[1:]} принимает гостей при дворе. Столица — {cap}, деревня — {vill}. Здесь живут {folk}. {npc}, {want}. Один и тот же народ может жить по обе стороны границы; происхождение не задаёт характер героя.'),('h','01  /  '+quest),('p',choice+' '+gain+' За основное местное дело +1 слава здесь; первое выполнение даёт опыт по общим правилам.'),('h','02  /  '+aa),('p',bb+' Награда: '+cc),('h','03  /  '+dd),('p',ee+' Награда: '+ff),('h','Вход: '+entr),('p','Этажи с I по V: '+floors+'. На каждом примените соответствующую опасность глубины с листа тактики. В архиве хранится '+rel+'. На V вместо боя допустима сделка: '+pact+'. Получите награду за достижение, даже если договорились.'),('h','Местные колоды и выходы'),('p',f'Особая вылазка «{landmarks[i]}»: фиксированная T {levels[i]}; её обычная встреча даёт 1 осколок дополнительно за первую победу. Общая колода: M{i*30+1:03}–M{(i+1)*30:03}; B{i*10+1:03}–B{(i+1)*10:03}. Дороги: '+', '.join(f'{(b if a==i+1 else a):02}' for a,b in edges if i+1 in (a,b))+'. Реликвия: '+items[30+i][0]+f' (I{31+i:02}).')],f'ОБЛАСТЬ {i+1:02}   /   '+biome.upper(),art=art_for(f'B{i*10+1:03}'))
     keys=[]
     for i,rr in enumerate(realms):keys +=[('h',f'{i+1:02}   /   '+rr[0]),('p',rr[11])]
     keys += [('p','Открывайте запись только после первого следа. Указан бросок открытия; при неудаче всё равно можно найти арку за день и припас. Не показывайте эту страницу на общей карте.')];page('Под сургучом: ключ переправ',keys)
@@ -159,6 +238,19 @@ def campaign():
                            ('p','Ответ · ' + path.reply), ('p','Последний звон · ' + path.epilogue)])
         blocks.extend([('h','Если герой оставил выбор открытым'), ('p',quest.unfinished)])
         page(quest.title, blocks, f'{hero_id}  /  {hero_name.upper()}     •     МЕСТО ОТВЕТА  /  {reply.upper()}')
+    for area_id,guide in sorted(GUIDES.items()):
+        index = area_id-1
+        name, _, capital, village, _, monarch = realms[index][:6]
+        blocks = [('h',monarch[:1].upper()+monarch[1:] + ' · ' + capital), ('p',guide['crown']),
+                  ('h',guide['head']), ('p',guide['request']), ('h','Кого встретить')]
+        for person in guide['residents']:
+            blocks.append(('p',f"{person['name']}, {person['role']}. {person['hook']}"))
+        blocks.extend([('h','Путь к поселению'), ('p',guide['terrain']),
+                       ('h','У входа под землю'), ('p',guide['cave']),
+                       ('h','Чьи следы на земле'), ('p',guide['tracks'])])
+        creature_names = ', '.join(family[0] for family in families[index*3:index*3+3])
+        blocks.append(('p', f'{creature_names}. Обычные карты M{index*30+1:03}–M{area_id*30:03}, боссы B{index*10+1:03}–B{area_id*10:03}.'))
+        page(name, blocks, f'ПОЛЕВОЙ СПРАВОЧНИК  /  {area_id:02}     •     {village.upper()}')
     c=Canvas(str(OUT/'02 Кампания и атлас.pdf'),pagesize=A4);c.setTitle('Море имён · Книга берегов');
     for i,(t,b,over,art) in enumerate(pages):bookpage(c,t,b,i+1,'Книга берегов',over,art)
     c.save()

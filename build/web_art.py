@@ -6,10 +6,9 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-from art import mix, sprite
+from art import mix
 from maps import OUT, fields
-from party import heroes
-from world import pal
+from web_atlas import main as make_atlas
 
 DEST = Path(__file__).resolve().parents[1] / "site/static/assets"
 W, H = 1200, 750
@@ -96,24 +95,7 @@ def field(index, slug):
 
 
 def main():
-    portraits = DEST / "portraits"
-    portraits.mkdir(exist_ok=True, parents=True)
-    atlas = Image.open(OUT / "Карта мира.png").convert("RGB")
-    atlas.crop((54, 184, 1956, 1225)).save(DEST / "atlas.webp", quality=88, method=6)
-    for i in range(len(heroes)):
-        school = i // 3
-        color = pal[school]
-        paper = mix(color, "#eee6ca", .76)
-        portrait = Image.new("RGB", (240, 240), paper)
-        d = ImageDraw.Draw(portrait)
-        for r in (45, 74, 103, 109):
-            d.ellipse((120-r, 126-r, 120+r, 126+r), outline=mix(color, paper, .58))
-        fig = sprite("hero" + str(school), i, school)
-        fig = fig.crop(fig.getchannel("A").getbbox())
-        fig.thumbnail((48, 47), Image.Resampling.NEAREST)
-        fig = fig.resize((fig.width * 4, fig.height * 4), Image.Resampling.NEAREST)
-        portrait.paste(fig, ((240 - fig.width)//2, (240 - fig.height)//2), fig)
-        portrait.save(portraits / f"H{i+1:02}.webp", lossless=True)
+    make_atlas()
     for index, slug in enumerate(("bell", "dungeon", "siege")):
         field(index, slug)
     scenery = DEST / "terrain"

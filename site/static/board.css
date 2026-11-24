@@ -1,47 +1,107 @@
 .mn-board {
   overflow: hidden;
-  border: 1px solid #546968;
-  border-radius: .5rem;
-  background: #1c3535;
-  color: #faf0da;
-  color-scheme: dark;
-  font: 1rem/1.45 system-ui, sans-serif;
+  width: 100%;
+  border: 1px solid var(--edge,#52615b);
+  border-radius: .55rem;
+  color: var(--ink,#f3ecd8);
+  background: var(--surface,#173330);
+  font: 1rem/1.4 var(--sans,system-ui,sans-serif);
 }
 .mn-stage {
   position: relative;
-  height: clamp(280px, 36vw, 510px);
+  height: clamp(290px,38vw,590px);
   isolation: isolate;
   overflow: hidden;
-  background: radial-gradient(ellipse at 52% 37%, #46645d, #294a47 55%, #203d3b 85%);
+  background: radial-gradient(ellipse at 52% 40%,#40544a,#243f3e 66%,#1b3438);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
-.mn-stage canvas { position: absolute; display: block; width: 100%; height: 100%; inset: 0; }
-.mn-stage canvas[hidden] { display: none; }
-.mn-overlay { touch-action: none; cursor: grab; }
-.mn-overlay:active { cursor: grabbing; }
-.mn-caption, .mn-tools {
-  position: absolute;
-  z-index: 1;
-  color: #fff5df;
-  background: #183332f5;
-  box-shadow: 0 1px 4px #152b2959;
-  border: 1px solid #75887c;
-  border-radius: .35rem;
+.mn-stage:active { cursor: grabbing; }
+.mn-stage.mn-rotate { cursor: crosshair; }
+.mn-stage canvas, .mn-pins { position:absolute; display:block; width:100%; height:100%; inset:0; }
+.mn-stage canvas[hidden], .mn-board [hidden] { display:none; }
+.mn-pins { pointer-events:none; }
+.mn-board .mn-pin {
+  position:absolute;
+  z-index:1;
+  transform:translate(-50%,-50%);
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:4px;
+  pointer-events:auto;
+  min-width:26px;
+  min-height:26px;
+  width:max-content;
+  max-width:130px;
+  margin:0;
+  padding:0 4px;
+  border:1px solid #b9a06d;
+  border-radius:50%;
+  box-shadow:0 1px 2px #201f2359;
+  background:#263c3b;
+  color:#fff3cd;
+  font:600 12px/1.05 var(--sans,system-ui,sans-serif);
+  text-align:center;
+  cursor:pointer;
 }
-.mn-caption {
-  top: .55rem; left: .55rem; max-width: calc(100% - 1.1rem);
-  padding: .27rem .55rem; font-size: .875rem; pointer-events: none;
+.mn-pin[data-place="realm"] .mn-glyph { display:none; }
+.mn-pin .mn-glyph { font:700 19px/1 Georgia,"Segoe UI Symbol",serif; }
+.mn-pin .mn-pin-name { display:none; }
+.mn-board .mn-pin[data-named="true"] {
+  border-radius:.23rem;
+  padding:3px 5px;
 }
-.mn-tools { right: .55rem; bottom: .55rem; display: flex; padding: .12rem; gap: 1px; }
-.mn-tools button {
-  padding: 0; margin: 0; min-width: 2.2rem; min-height: 2.2rem; width: 2.2rem; height: 2.2rem;
-  border: 0; border-radius: .18rem; background: transparent;
-  color: #fff4db; font: 1.3rem/1.1 system-ui, sans-serif; cursor: pointer; touch-action: manipulation;
+.mn-pin[data-named="true"] .mn-pin-name { display:block; }
+.mn-board .mn-pin[data-place="realm"] {
+  min-height:22px;
+  background:radial-gradient(ellipse, #fff1d3f5 22%, #f5e5c3c9 62%, #f5e5c300 82%);
+  color:#27251d;
+  border-color:transparent;
+  box-shadow:none;
+  text-shadow:1px 0 #fff5dc,-1px 0 #fff5dc,0 1px #fff5dc,0 -1px #fff5dc,0 0 3px #fff1d5;
+  font:700 13px/1.03 Georgia,serif;
 }
-.mn-tools button:hover { color: #16342e; background: #edd5a1; }
-.mn-stage:focus-visible, .mn-tools button:focus-visible, .mn-key summary:focus-visible { outline: 3px solid #f6ce74; outline-offset: -3px; }
-.mn-key { border-top: 1px solid #627670; padding: 0 .75rem; margin: 0; background: #213937; }
-.mn-key summary { padding: .55rem 0; cursor: pointer; color: #f1ead7; font-size: .9rem; }
-.mn-key ul { margin: .1rem 0 .75rem; padding-left: 1.2rem; font-size: .9rem; color: #ede7d6; }
-@media (pointer: coarse) {
-  .mn-tools button { width: 2.75rem; height: 2.75rem; }
+.mn-board .mn-pin[data-place="capital"] { background:#764a32; }
+.mn-board .mn-pin[data-place="village"] { background:#37523e; }
+.mn-board .mn-pin[data-place="dungeon"] { background:#4b4052; }
+.mn-board .mn-pin[data-place="party"] {
+  background:#9b4732; color:#fff6dc; border:2px solid #ffe6a9;
 }
+.mn-board .mn-pin:hover, .mn-board .mn-pin:focus-visible, .mn-board .mn-pin[data-selected="true"] {
+  z-index:2; outline:2px solid #fff0bb; outline-offset:1px; box-shadow:0 0 0 4px #56432f;
+}
+.mn-pin:is(:hover,:focus-visible)[data-named="false"] .mn-pin-name {
+  position:absolute; display:block; top:100%; left:50%; transform:translateX(-50%);
+  max-width:140px; width:max-content; margin-top:4px; padding:3px 5px; border-radius:3px;
+  background:#183133; color:#fff0c9; pointer-events:none;
+}
+.mn-tools {
+  display:flex; flex-wrap:wrap; gap:4px; align-items:center;
+  padding:.38rem .55rem; border-block:1px solid var(--edge,#52615b);
+}
+.mn-tools button, .mn-key-place {
+  appearance:none; margin:0; min-width:2.3rem; min-height:2.3rem; padding:.25rem .48rem;
+  border:1px solid var(--edge,#63736c); border-radius:.25rem; color:inherit;
+  background:var(--well,#172d2c); cursor:pointer; font:600 .82rem/1.15 var(--sans,system-ui,sans-serif);
+  touch-action:manipulation;
+}
+.mn-tools button[data-map-action^="zoom"] { font-size:1.15rem; }
+.mn-tools button[aria-pressed="true"] { color:var(--on-action,#292219); background:var(--action,#e7c078); }
+.mn-tools button:disabled { opacity:.48; cursor:default; }
+.mn-tools button:enabled:hover, .mn-key-place:hover { border-color:var(--gold,#e5c788); }
+.mn-scale { min-width:4ch; color:var(--muted,#d0d4c8); font-size:.8rem; text-align:center; font-variant-numeric:tabular-nums; }
+.mn-caption { padding:.35rem .65rem; font-size:.875rem; }
+.mn-stage:focus-visible, .mn-tools button:focus-visible, .mn-key :focus-visible { outline:3px solid var(--gold,#edc572); outline-offset:-3px; }
+.mn-key { padding:0 .65rem; margin:0; border-top:1px solid var(--edge,#52615b); }
+.mn-key summary { padding:.45rem 0; cursor:pointer; color:inherit; font-size:.875rem; }
+.mn-key ul { display:flex; flex-wrap:wrap; gap:.4rem; margin:.15rem 0 .65rem; padding:0; list-style:none; font-size:.875rem; }
+@media (max-width:550px) {
+  .mn-stage { height:clamp(255px,76vw,350px); }
+  .mn-board .mn-pin[data-place="realm"] { max-width:88px; font-size:12px; }
+  .mn-tools { gap:3px; padding-inline:.3rem; }
+  .mn-tools button { min-height:40px; min-width:32px; padding:.25rem .36rem; }
+}
+@media (pointer:coarse) { .mn-tools button, .mn-key-place { min-height:44px; } }

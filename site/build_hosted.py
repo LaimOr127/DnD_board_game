@@ -51,7 +51,8 @@ def main(output):
     with zipfile.ZipFile(static / "world.zip", "w", zipfile.ZIP_DEFLATED) as bundle:
         for path in ("site/engine.py", "site/story.py", "site/roadside.py", "site/promises.py", "site/personal.py",
                      "site/personal_quests.py", "site/checkpoints.py", "site/freeplay.py", "site/service.py", "site/online_room.py", "build/foes.py",
-                     "build/party.py", "build/world.py", "build/edicts.py", "design/rules.md", "design/promises.md"):
+                     "build/party.py", "build/world.py", "build/edicts.py", "build/extras.py",
+                     "build/field_guide.py", "design/rules.md", "design/promises.md"):
             bundle.write(ROOT / path, path)
 
     figures = output / "figures"

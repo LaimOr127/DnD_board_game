@@ -1,5 +1,6 @@
 import {mountSaves} from "./saves.js";
 import {mountFreeplay} from "./freeplay.js";
+import {mountFieldGuide} from "./field-guide.js";
 const $ = (id) => document.getElementById(id);
 const dlg = $("dialog"),
   body = $("dialogBody");
@@ -23,6 +24,7 @@ const growth = {
 const hostTip = "Выбор группы записывает создатель стола.";
 const saves = mountSaves({state: () => state, request, accept, modal, report});
 const free = mountFreeplay({state: () => state, command, request, accept, modal, report, saves});
+const guide = mountFieldGuide({book: () => book, modal, el, btn, field, options, section, details});
 const playing = () => state?.session?.status === "active";
 let roomEpoch = 0;
 
@@ -339,6 +341,7 @@ function heroSheet(id) {
     intro,
     numbers,
     el("p", "Старт · 8 ОЗ, 3 искры, красный отвар и " + item.name.toLowerCase() + ".", "small"),
+    btn("Посмотреть снаряжение", () => equipment(item.id), "text-button"),
     section("Приём", el("p", c.technique)),
     section("Талант", el("p", c.talent)),
   ];
@@ -474,6 +477,28 @@ function heroSheet(id) {
   } else if (h.owner) content.push(el("p", "Играет " + h.ownerName, "meta"));
   modal(c.name, ...content);
 }
+function equipment(initialId) {
+  const items = book.items, original = items.find(i => i.id === initialId);
+  const types = [...new Set(items.map(i => i.slot))];
+  const slot = options(types.map(v => [v,v]));
+  slot.value = original?.slot || types[0];
+  const list = el("div", null, "equipment-grid");
+  function draw() {
+    list.replaceChildren(...items.filter(i => i.slot === slot.value).map(i => {
+      const entry = el("article");
+      const art = img("/static/assets/cards/" + i.id + ".webp", "");
+      const heading = el("h3", i.name);
+      heading.id = "gear-" + i.id;
+      heading.tabIndex = -1;
+      entry.append(art, el("small", i.id + " · " + i.slot, "meta"), heading, el("p", i.text));
+      return entry;
+    }));
+  }
+  slot.onchange = draw; draw();
+  modal("Оружие, броня и находки", field("Вид снаряжения", slot), list);
+  if (original) $("gear-" + original.id)?.focus();
+}
+
 function renderLibrary(tab) {
   const lib = $("library");
   if (tab === "heroes") {
@@ -482,6 +507,7 @@ function renderLibrary(tab) {
       el("p", "Атлас десяти корон", "section-kicker"),
       el("h1", "Герои"),
       el("p", "Выберите свидетеля. На листе — его прошлое, оружие, стартовые характеристики и личный выбор."),
+      btn("Оружие, броня и находки", () => equipment(), "text-button"),
       grid,
     );
     return;
@@ -491,25 +517,43 @@ function renderLibrary(tab) {
   search.required = false;
   search.placeholder = "Например, искра или урон…";
   const list = el("div", null, "rule-body");
-  const draw = () => {
+  const lessons = new Map([[1,"H07"],[2,"H01"],[3,"H16"],[22,"H04"],[23,"H16"],[24,"H14"]]);
+  const draw = (openedPage) => {
     const q = search.value.toLowerCase().trim();
     list.replaceChildren();
-    for (const rule of book.rules) {
+    for (const [n,rule] of book.rules.entries()) {
       if (q && !(rule.title + " " + rule.body).toLowerCase().includes(q)) continue;
       const d = details(rule.title);
+      const page = n + 1;
+      d.id = "rule-page-" + page;
       d.className = "rule-row";
+      d.open = openedPage === page;
+      if (lessons.has(page)) {
+        const lessonArt = img("/static/assets/portraits/" + lessons.get(page) + ".webp", "", "rule-portrait");
+        d.append(lessonArt);
+      }
       for (const line of rule.body.split("\n").filter(Boolean)) {
         d.append(line.startsWith("## ") ? el("h3", line.slice(3)) : el("p", line));
       }
+      const printPage = link("В печатной книге · стр. " + page, "/rules.pdf#page=" + page);
+      printPage.target = "_blank"; printPage.rel = "noopener"; d.append(printPage);
       list.append(d);
     }
     if (!list.children.length) list.append(el("p", "Совпадений нет. Попробуйте другое слово."));
   };
-  search.oninput = draw;
+  search.oninput = () => draw();
   draw();
   const pdf = link("Открыть печатные правила (PDF)", "/rules.pdf");
   pdf.target = "_blank";
   pdf.rel = "noopener";
+  const shortcuts = el("div", null, "field-nav");
+  for (const [page,title] of [[1,"Сыграть первый ход"],[22,"Когда что можно"],[23,"Пример стычки"],[24,"Указатель правил"]]) {
+    shortcuts.append(btn(title, () => {
+      search.value = ""; draw(page);
+      const summary = $("rule-page-" + page)?.querySelector("summary");
+      if (summary) { summary.focus(); summary.scrollIntoView({block:"center"}); }
+    }));
+  }
   lib.replaceChildren(
     el("p", "Книга игрока", "section-kicker"),
     el("h1", "Правила"),
@@ -517,13 +561,13 @@ function renderLibrary(tab) {
       "p",
       "Проверка — 2d6 + характеристика + ступень − 1. При преимуществе оставьте две лучшие из трёх костей, при помехе — две худшие.",
     ),
-    pdf,
+    shortcuts, pdf,
     field("Найти в книге", search),
     list,
   );
 }
 function currentTab() {
-  return ["#heroes", "#rules"].includes(location.hash) ? location.hash.slice(1) : "table";
+  return ["#heroes", "#rules", "#atlas"].includes(location.hash) ? location.hash.slice(1) : "table";
 }
 let drawnTab = "";
 function render() {
@@ -536,12 +580,16 @@ function render() {
   for (const area of document.querySelectorAll("#game > .game-grid, #game > .play-grid")) area.hidden = isFree;
   $("lobby").hidden = Boolean(state) || tab !== "table";
   $("game").hidden = !state || tab !== "table";
-  $("library").hidden = tab === "table";
+  $("library").hidden = tab === "table" || tab === "atlas";
+  $("atlas").hidden = tab !== "atlas";
   document.querySelectorAll(".topnav a").forEach((a) => {
     if (a.hash === "#" + tab) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
   });
-  if (tab !== "table") {
+  if (tab === "atlas") {
+    guide.index();
+    void updateBoard();
+  } else if (tab !== "table") {
     if (tab !== "rules" || drawnTab !== tab) renderLibrary(tab);
   } else if (isFree) {
     $("chapterLabel").textContent = "Свободный планшет";
@@ -555,19 +603,27 @@ function render() {
   drawnTab = tab;
 }
 let mapImport;
+const mapMount = el("div");
 async function updateBoard() {
   if (!board) {
     mapImport ||= import("/static/board.js");
     try {
       const m = await mapImport;
-      board ||= m.createBoard($("map"));
+      board ||= m.createBoard(mapMount, {onInspect:guide.show});
     } catch {
       mapImport = null;
-      $("map").textContent = "Графический атлас недоступен. Позиции фигур указаны ниже.";
+      const target = currentTab() === "atlas" ? $("atlasMap") : $("map");
+      target.textContent = "Графический атлас недоступен. Откройте королевство в указателе.";
       return;
     }
   }
-  if (state?.mode !== "free") board.update(state, book);
+  if (state?.mode === "free") return;
+  const exploring = currentTab() === "atlas";
+  const target = exploring ? $("atlasMap") : $("map");
+  if (mapMount.parentElement !== target) target.replaceChildren(mapMount);
+  if (exploring || state) board.update(exploring
+    ? {...state, party:state?.party || {realm:null, portals:[]}, heroes:state?.heroes || {}, scene:null}
+    : state, book);
 }
 function renderGame() {
   const p = state.party,
@@ -591,16 +647,15 @@ function renderGame() {
         " — " +
         (t.waiting ? "подкрепление" : s.zones[t.zone - 1] || "вне поля") +
         (t.kind === "npc" ? "" : " · " + t.hp + "/" + t.maxHp + " ОЗ");
-      if (t.kind === "boss" || t.kind === "foe")
-        loc.append(
-          details(
+      if (t.kind === "boss" || t.kind === "foe") {
+        const entry = details(
             caption,
             ...[t.decree, t.ability, t.trait, t.omen, t.signal, t.counter, t.loss]
               .filter(Boolean)
               .map((v) => el("p", v)),
-          ),
         );
-      else loc.append(el("p", caption));
+        loc.append(guide.illustrateEntry(entry, t.ref));
+      } else loc.append(el("p", caption));
     }
   } else
     loc.append(
@@ -1442,6 +1497,7 @@ async function init() {
     online = await module.makeOnline();
     book = await request("/api/lobby");
   }
+  if (currentTab() === "atlas") render();
   const epoch = roomEpoch;
   try {
     const saved = (invitation
