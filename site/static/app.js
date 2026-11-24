@@ -533,7 +533,7 @@ function renderLibrary(tab) {
   search.required = false;
   search.placeholder = "Например, искра или урон…";
   const list = el("div", null, "rule-body");
-  const printEdition = "/rules.pdf?v=prologue";
+  const printEdition = "/rules.pdf?v=paper";
   const lessons = new Map([[1,"H07"],[2,"H01"],[3,"H16"],[22,"H04"],[23,"H16"],[24,"H14"]]);
   const draw = (openedPage) => {
     const q = search.value.toLowerCase().trim();
@@ -573,8 +573,11 @@ function renderLibrary(tab) {
   const pdf = link("Печатное руководство · с чего начать (PDF)", printEdition + "#page=25");
   pdf.target = "_blank";
   pdf.rel = "noopener";
+  const saveSheets = link("Бумажное сохранение и журнал (PDF)", "/board.pdf?v=paper#page=14");
+  saveSheets.target = "_blank";
+  saveSheets.rel = "noopener";
   const shortcuts = el("div", null, "field-nav");
-  for (const [page,title] of [[25,"Что достать"],[26,"Подготовить игру"],[27,"Сыграть пролог"],[29,"Бой с боссом"],
+  for (const [page,title] of [[34,"Играть на бумаге"],[25,"Что достать"],[26,"Подготовить игру"],[27,"Сыграть пролог"],[29,"Бой с боссом"],
     [30,"Поражение"],[31,"Разрешить спор"],[32,"Играть с сайтом"],[23,"Пример стычки"],[24,"Указатель правил"]]) {
     shortcuts.append(btn(title, () => {
       search.value = ""; draw(page);
@@ -589,7 +592,7 @@ function renderLibrary(tab) {
       "p",
       "Для первой встречи пройдите разделы о комплекте, подготовке и переправе. Остальные разделы открывайте по ходу игры.",
     ),
-    shortcuts, pdf,
+    shortcuts, add(el("div", null, "field-nav"), pdf, saveSheets),
     field("Найти в книге", search),
     list,
   );

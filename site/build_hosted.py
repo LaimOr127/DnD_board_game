@@ -55,7 +55,7 @@ def main(output):
                      "site/personal_quests.py", "site/checkpoints.py", "site/freeplay.py", "site/service.py", "site/online_room.py", "build/foes.py",
                      "build/party.py", "build/world.py", "build/edicts.py", "build/extras.py",
                      "build/field_guide.py", "build/card_lore.py", "design/rules.md", "design/promises.md",
-                     "design/first-session.md"):
+                     "design/first-session.md", "design/offline.md"):
             bundle.write(ROOT / path, path)
 
     figures = output / "figures"

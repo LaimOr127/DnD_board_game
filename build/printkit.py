@@ -95,7 +95,7 @@ def decks():
     from chronicle_cards import build_chronicles
     build_chronicles()
 
-RULE_BOOK = ('rules.md', 'promises.md', 'first-session.md')
+RULE_BOOK = ('rules.md', 'promises.md', 'first-session.md', 'offline.md')
 
 
 def parse_book(filename='rules.md'):
@@ -214,7 +214,9 @@ def rules():
     sections = [page for filename in RULE_BOOK for page in parse_book(filename)]
     icons = {4:'heart',5:'coin',6:'helm',7:'portal',8:'eye',9:'lantern',10:'horn',11:'crown',12:'book'}
     for num,(title,blocks) in enumerate(sections,1):
-        if num <= 3 or num >= 22:
+        if num >= 34:
+            series = 'Игра на бумаге'
+        elif num <= 3 or num >= 22:
             series = 'Первый вечер'
         elif 15 <= num <= 19:
             series = 'Книга обещаний'

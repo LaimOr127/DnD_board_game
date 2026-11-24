@@ -56,7 +56,7 @@ def main():
     solid = manifold3d.Manifold(manifold3d.Mesh(die.vertices.astype('float32'), die.faces.astype('uint32')))
     assert die.is_volume and len(solid.decompose())==1 and np.allclose(die.extents,[16,16,16])
     assert np.linalg.norm(die.center_mass-[0,0,8]) < 0.01
-    expected=[7,33,55,13,2,34,12,5,8];pdfs=sorted(OUT.glob('*.pdf'));assert len(pdfs)==9;pagecounts={};tmp=ROOT/'qa-temp';tmp.mkdir(exist_ok=True);allthumb=[]
+    expected=[7,36,55,15,2,34,12,5,8];pdfs=sorted(OUT.glob('*.pdf'));assert len(pdfs)==9;pagecounts={};tmp=ROOT/'qa-temp';tmp.mkdir(exist_ok=True);allthumb=[]
     for ix,p in enumerate(pdfs):
         d=pymupdf.open(p);assert len(d)==expected[ix],(p,len(d));pagecounts[p.name]=len(d);alltext=''
         for pi,pg in enumerate(d):
@@ -68,6 +68,10 @@ def main():
             for region in realms:
                 assert region[3].casefold() in travel_pages, region[3]
                 assert all(hidden.casefold() not in travel_pages for hidden in (region[8],region[11])), region[0]
+            for i, labels in [(13, ('Сохранение встречи', 'СОХРАНИЛ(А)', 'Зона', 'Действие', 'сигнал', 'ворот')),
+                              (14, ('Журнал решений и обещаний', 'Герой / игрок', 'место', 'отклика'))]:
+                sheet = d[i].get_text()
+                assert '\x00' not in sheet and all(label in sheet for label in labels), (p, i+1)
         if ix in [0,1,2]:assert 'море' in alltext.casefold() and '□' not in alltext
         if ix == 1:
             from printkit import parse_book, RULE_BOOK

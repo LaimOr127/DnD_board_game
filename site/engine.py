@@ -215,7 +215,7 @@ def weapon_of(item):
 
 def load_rules():
     raw = "\n".join((ROOT / "design" / filename).read_text(encoding="utf-8")
-                    for filename in ("rules.md", "promises.md", "first-session.md"))
+                    for filename in ("rules.md", "promises.md", "first-session.md", "offline.md"))
     chunks = re.split(r"(?m)^(?=# )", raw)
     out = []
     for chunk in chunks:
