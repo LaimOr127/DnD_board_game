@@ -8,6 +8,7 @@ import urllib.request
 from pathlib import Path
 
 from server import GameServer
+from test_checkpoints import JPEG
 
 
 class SharedTableTest(unittest.TestCase):
@@ -58,6 +59,17 @@ class SharedTableTest(unittest.TestCase):
                 with self.assertRaises(urllib.error.HTTPError):
                     api(host, "action", op="round", rev=first["rev"])
                 self.assertEqual(second["you"]["id"], api(guest, "join", name="Юра", code=code)["you"]["id"])
+                seen = api(guest, "state")
+                api(guest, "checkpoints", op="save", rev=seen["rev"], photo=JPEG, note="Раунд у брода")
+                with self.assertRaises(urllib.error.HTTPError):
+                    api(host, "create", name="Вера", mode="free")
+                free = api(guest, "create", name="Юра", mode="free", title="Вторая игра")
+                self.assertEqual([], free["session"]["points"])
+                free = api(guest, "checkpoints", op="finish", rev=free["rev"])
+                self.assertEqual("finished", free["session"]["status"])
+                original = api(guest, "switch", code=code)
+                self.assertFalse(original["host"])
+                self.assertEqual(second["you"]["id"], original["you"]["id"])
             finally:
                 server.shutdown()
                 server.server_close()
@@ -67,6 +79,17 @@ class SharedTableTest(unittest.TestCase):
                 self.assertEqual(again["you"]["heroId"], "H07")
                 self.assertEqual(again["heroes"]["H07"]["pencil"], "Мой секрет")
                 self.assertEqual(again["story"]["id"], "bell")
+                point, = again["session"]["points"]
+                self.assertEqual("Юра", point["author"])
+                url = f"http://127.0.0.1:{server.server_port}/api/checkpoints"
+                photo = urllib.request.Request(url, json.dumps({"op":"photo", "id":point["id"]}).encode(),
+                                              {"Content-Type":"application/json"})
+                with guest.open(photo) as response:
+                    self.assertEqual(JPEG, json.load(response)["photo"])
+                with guest.open(f"http://127.0.0.1:{server.server_port}/api/tables") as response:
+                    self.assertEqual({code, free["code"]}, {row["code"] for row in json.load(response)["tables"]})
+                with host.open(f"http://127.0.0.1:{server.server_port}/api/tables") as response:
+                    self.assertEqual([code], [row["code"] for row in json.load(response)["tables"]])
             finally:
                 server.shutdown()
                 server.server_close()

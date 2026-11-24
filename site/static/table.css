@@ -869,3 +869,17 @@ summary {
 #roadMeeting .text-button + .text-button {
   margin-left: 1rem;
 }
+#sessionBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .55rem;
+  border-block: 1px solid var(--edge);
+  padding-block: .8rem;
+  margin-bottom: 1.25rem;
+}
+#sessionBar strong { margin-inline-end: auto; }
+#sessionBar button { min-height: 44px; }
+@media (max-width: 600px) {
+  #sessionBar strong { width: 100%; }
+}

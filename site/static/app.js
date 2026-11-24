@@ -1,3 +1,5 @@
+import {mountSaves} from "./saves.js";
+import {mountFreeplay} from "./freeplay.js";
 const $ = (id) => document.getElementById(id);
 const dlg = $("dialog"),
   body = $("dialogBody");
@@ -19,6 +21,10 @@ const growth = {
   capstone: "Дар десятого уровня",
 };
 const hostTip = "Выбор группы записывает создатель стола.";
+const saves = mountSaves({state: () => state, request, accept, modal, report});
+const free = mountFreeplay({state: () => state, command, request, accept, modal, report, saves});
+const playing = () => state?.session?.status === "active";
+let roomEpoch = 0;
 
 function el(tag, value, cls) {
   const node = document.createElement(tag);
@@ -101,7 +107,9 @@ function report(error) {
   } else note(msg);
 }
 function modal(title, ...children) {
-  body.replaceChildren(el("h2", title), ...children.filter(Boolean));
+  const heading = el("h2", title);
+  heading.id = "dialogTitle";
+  body.replaceChildren(heading, ...children.filter(Boolean));
   if (!dlg.open) dlg.showModal();
   dlg.scrollTop = 0;
 }
@@ -130,7 +138,7 @@ function submit(label) {
 async function http(path, opts = {}) {
   const res = await fetch(path, {
     method: opts.method || "GET",
-    headers: opts.body ? { "Content-Type": "application/json" } : {},
+    headers: { ...(opts.body ? {"Content-Type":"application/json"} : {}), ...(state ? {"X-Table-Code":state.code} : {}) },
     body: opts.body ? JSON.stringify(opts.body) : undefined,
     cache: "no-store",
   });
@@ -156,7 +164,9 @@ function logLine(row) {
 }
 async function accept(s) {
   if (!s || (state && state.code === s.code && state.rev > s.rev)) return;
+  const changedStatus = state && state.session?.status !== s.session?.status;
   state = s;
+  if (changedStatus && dlg.open && !body.querySelector(".save-panel, #promisePages, #openLogList")) dlg.close();
   const key = JSON.stringify([
     s.code,
     s.party.realm,
@@ -166,7 +176,7 @@ async function accept(s) {
     s.party.opened,
     s.party.glory,
   ]);
-  if (key !== bookKey) {
+  if (key !== bookKey && state.mode !== "free") {
     bookKey = key;
     try {
       book = await request("/api/book");
@@ -176,10 +186,14 @@ async function accept(s) {
     }
   }
   render();
+  saves.refresh();
+  if (dlg.open && $("turnMenu")) fillTurnMenu();
 }
 async function command(action, next) {
-  if (busy) return;
+  if (busy) throw Error("Предыдущий ход ещё записывается. Дождитесь подтверждения.");
+  if (!playing()) throw Error("Чтобы сделать ход, создателю стола нужно продолжить игру.");
   busy = true;
+  const sourceCode = state.code, epoch = roomEpoch;
   try {
     // Shared counters and positions depend on the value the player saw.
     // Append-only rolls, idempotent setup and story pages have their own checks.
@@ -197,14 +211,19 @@ async function command(action, next) {
       "travel",
       "roll",
       "meeting",
+      "approach",
     ];
-    const cmd = guarded.includes(action.op) ? { ...action, rev: state.rev } : action;
+    const cmd = guarded.includes(action.op) ? { rev: state.rev, ...action } : action;
     const result = await request("/api/action", { method: "POST", body: cmd });
+    if (roomEpoch !== epoch || result.state.code !== sourceCode) return;
     await accept(result.state);
     if (next) next();
   } catch (e) {
     try {
-      await accept((await request("/api/state")).state);
+      if (roomEpoch === epoch) {
+        const latest = (await request("/api/state")).state;
+        if (latest?.code === sourceCode && roomEpoch === epoch) await accept(latest);
+      }
     } catch {}
     throw e;
   } finally {
@@ -212,10 +231,12 @@ async function command(action, next) {
   }
 }
 function action(label, cmd, next, cls) {
-  return btn(label, () => command(cmd, next), cls);
+  const button = btn(label, () => command(cmd, next), cls);
+  button.disabled = !playing();
+  return button;
 }
 function access(join) {
-  const name = input("name", 24);
+  const name = input("name", 24, state?.you.name || "");
   name.autocomplete = "nickname";
   name.placeholder = "Имя за столом";
   const code = input("code", 24, invitation);
@@ -223,19 +244,30 @@ function access(join) {
   code.autocomplete = "off";
   code.autocapitalize = "characters";
   code.placeholder = "Код из приглашения";
+  const mode = options([["campaign","Кампания «Море имён»"], ["free","Свободный стол для другой игры"]]);
+  const title = input("title", 48);
+  title.required = false;
+  title.placeholder = "Например, «Среда у Алексея»";
+  const description = el("p", "Сюжет пяти глав, 18 героев и карта десяти королевств.", "meta");
+  mode.onchange = () => { description.textContent = mode.value === "free"
+    ? "Ваши персонажи, здоровье, энергия и кубики. Сюжет и правила выбирает группа."
+    : "Сюжет пяти глав, 18 героев и карта десяти королевств."; };
   const form = makeForm(
     async () => {
       const result = await request(join ? "/api/join" : "/api/create", {
         method: "POST",
-        body: { name: name.value.trim(), code: code.value.trim().toUpperCase() },
+        body: join ? {name:name.value.trim(), code:code.value.trim().toUpperCase()} :
+          {name:name.value.trim(), mode:mode.value, title:title.value.trim()},
       });
       dlg.close();
-      history.replaceState(null, "", location.pathname + "#table");
-      await accept(result.state);
-      if (!mine()) showHeroes();
+      await enterTable(result.state);
+      if (state.mode !== "free" && playing() && !mine()) showHeroes();
     },
     field("Как вас зовут", name),
     join ? field("Код стола", code) : null,
+    join ? null : field("Во что играем", mode),
+    join ? null : description,
+    join ? null : field("Название стола (по желанию)", title),
     submit(join ? "Присоединиться" : "Открыть мой стол"),
   );
   modal(
@@ -244,17 +276,47 @@ function access(join) {
       "p",
       join
         ? "Введите имя и код, который прислал создатель комнаты."
-        : "Друзья смогут присоединиться по коду. Каждый выбирает своего героя.",
+        : "Назовите встречу, чтобы потом найти её в «Моих столах». Друзья смогут присоединиться по коду.",
     ),
     form,
   );
+}
+async function enterTable(snapshot) {
+  roomEpoch++;
+  bookKey = controlsKey = drawnTab = "";
+  history.replaceState(null, "", location.pathname + "#table");
+  await accept(snapshot);
+}
+
+async function myTables() {
+  const panel = el("div", null, "stack");
+  modal("Мои столы", panel);
+  const locked = state?.host && playing();
+  if (locked) panel.append(el("p", "Вы ведёте «" + state.title + "». Перед переходом сохраните его на паузе или завершите встречу."),
+    btn("Пауза", () => saves.open("pause")), btn("Завершить игру", () => saves.open("finish")));
+  else panel.append(btn("Создать другой стол", () => access(false), "primary"), btn("Войти по коду", () => access(true)));
+  const {tables} = await request("/api/tables");
+  if (!panel.isConnected) return;
+  if (!tables.length) panel.append(el("p", "Здесь появятся комнаты, в которых вы играли с этого браузера."));
+  for (const t of tables) {
+    const status = {active:"встреча идёт",paused:"на паузе",finished:"встреча завершена",unknown:"статус при подключении"}[t.status];
+    const row = section(t.title || "Игровой стол", el("p",
+      [t.mode === "free" ? "Свободный планшет" : "Кампания", status, t.host ? "вы ведёте" : "вы играете", t.code].filter(Boolean).join(" · "), "meta"));
+    if (t.code === state?.code) row.append(el("strong", "Открыт сейчас"));
+    else if (!locked) row.append(btn("Открыть стол", async () => {
+      const result = await request("/api/switch", {method:"POST", body:{code:t.code}});
+      dlg.close();
+      await enterTable(result.state);
+    }));
+    panel.append(row);
+  }
 }
 function card(c) {
   const b = btn("", () => heroSheet(c.id), "portrait-card");
   const info = add(
     el("span"),
     el("strong", c.name),
-    el("small", c.school + " · " + (state?.heroes[c.id].ownerName || c.role)),
+    el("small", c.school + " · " + (state?.heroes[c.id]?.ownerName || c.role)),
   );
   return add(b, img("/static/assets/portraits/" + c.id + ".webp", ""), info);
 }
@@ -466,7 +528,12 @@ function currentTab() {
 let drawnTab = "";
 function render() {
   if (!book) return;
-  const tab = currentTab();
+  const isFree = state?.mode === "free";
+  const tab = isFree ? "table" : currentTab();
+  document.querySelectorAll('.topnav a:not([href="#table"])').forEach(a => { a.hidden = isFree; });
+  $("freeTable").hidden = !isFree;
+  $("freeRules").hidden = !isFree;
+  for (const area of document.querySelectorAll("#game > .game-grid, #game > .play-grid")) area.hidden = isFree;
   $("lobby").hidden = Boolean(state) || tab !== "table";
   $("game").hidden = !state || tab !== "table";
   $("library").hidden = tab === "table";
@@ -474,9 +541,14 @@ function render() {
     if (a.hash === "#" + tab) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
   });
-  $("roomButton").textContent = state ? "Код стола" : "Войти за стол";
   if (tab !== "table") {
     if (tab !== "rules" || drawnTab !== tab) renderLibrary(tab);
+  } else if (isFree) {
+    $("chapterLabel").textContent = "Свободный планшет";
+    $("tableTitle").textContent = state.title;
+    $("invite").textContent = "Пригласить друзей";
+    renderSession();
+    free.render($("freeTable"));
   } else if (state) renderGame();
   else if (!$("featured").children.length)
     $("featured").replaceChildren(...book.heroes.filter((_, i) => i % 3 === 0).map(card));
@@ -495,7 +567,7 @@ async function updateBoard() {
       return;
     }
   }
-  board.update(state, book);
+  if (state?.mode !== "free") board.update(state, book);
 }
 function renderGame() {
   const p = state.party,
@@ -503,7 +575,8 @@ function renderGame() {
     st = state.story,
     c = mine() && hero(mine()),
     h = c && state.heroes[c.id];
-  $("chapterLabel").textContent = "Глава " + p.chapter + " · " + realm().name;
+  renderSession();
+  $("chapterLabel").textContent = state.title + " · Глава " + p.chapter + " · " + realm().name;
   $("tableTitle").textContent = st.title;
   $("invite").textContent = "Пригласить друзей";
   $("mapTitle").textContent = s ? s.title : "Карта десяти королевств";
@@ -593,12 +666,89 @@ function renderGame() {
     ),
   );
   renderMeeting(st.meeting);
-  if ((st.promises || []).some((c) => c.record && !c.record.closed && c.choices.length)) {
+  if (playing() && st.promises.some((c) => !c.ownerHero && c.record && !c.record.closed && c.choices.length)) {
     $("storyBody").append(btn("Вручить поручение до завершения сцены", promiseDialog));
+  }
+  if (playing() && st.promises.some((card) => card.ownerHero && card.record && canSign(card))) {
+    $("storyBody").append(btn("Вернуться к личному поручению", promiseDialog));
   }
   drawPromises();
   controls();
   $("lastLog").replaceChildren(...state.log.slice(-2).map(logLine));
+}
+
+function renderSession() {
+  const bar = $("sessionBar"), status = state.session.status;
+  const key = status + state.host;
+  $("openDice").disabled = $("openGm").disabled = !playing();
+  if (bar.dataset.key === key) return;
+  bar.dataset.key = key;
+  const caption = {active: "Встреча идёт", paused: "Партия на паузе", finished: "Встреча завершена"}[status];
+  bar.replaceChildren(el("strong", caption), btn("Сохранить игру", () => saves.open("save")),
+    btn("Сохранения и фото", () => saves.open("history")));
+  if (!state.host) return;
+  if (playing()) bar.append(btn("Пауза", () => saves.open("pause")));
+  else bar.append(btn("Продолжить игру", () => saves.open("resume"), "primary"));
+  if (status !== "finished") bar.append(btn("Завершить игру", () => saves.open("finish")));
+}
+
+function canSign(card) {
+  return playing() && mine() && (!card.actor || card.actor === mine()) && card.choices.length;
+}
+
+function turnMenu() {
+  const panel = el("div", null, "stack");
+  panel.id = "turnMenu";
+  modal("Меню хода", panel);
+  fillTurnMenu();
+}
+
+function fillTurnMenu() {
+  const panel = $("turnMenu"), {party, scene, story, host} = state;
+  const key = JSON.stringify([state.rev, state.code]);
+  if (panel.dataset.key === key) return;
+  panel.dataset.key = key;
+  const items = [el("p", [realm().name, "день " + party.day, scene ? scene.title + " · раунд " + scene.round : story.title].join(" · "), "meta")];
+  if (!playing()) {
+    items.push(btn("Посмотреть последнее положение и фото", () => saves.open("history")));
+    if (host) items.push(btn("Продолжить игру", () => saves.open("resume"), "primary"));
+  } else {
+    if (!mine()) items.push(btn("Выбрать героя", showHeroes, "primary"));
+    if (party.weatherDue && host) {
+      items.push(action("Переждать непогоду · потерять день", {op:"weather", pay:"day"}),
+        action("Пережить непогоду · потратить припас", {op:"weather", pay:"supply"}));
+    }
+    if (party.fightDue && !scene && host) {
+      items.push(action("Разложить дорожную стычку", {op:"roadFight"}),
+        action("Подтвердить исход стычки с бумажного поля", {op:"clearFight"}));
+    }
+    if (scene) items.push(btn("Сделать бросок на поле", diceDialog));
+    if (story.promises.some(canSign)) items.push(btn("Открыть доступные поручения", promiseDialog));
+    if (story.meeting && story.meeting.stage !== "settled")
+      items.push(btn("Подойти к попутчику", () => { dlg.close(); focusMeeting(); }));
+    if (story.choices.length) {
+      const sceneChoices = section(story.title, el("p", story.prompt));
+      for (const ch of story.choices) sceneChoices.append(host ?
+        action(ch.label, {op:"story", scene:story.id, choice:ch.id}) : el("p", ch.label));
+      if (!host) sceneChoices.append(el("p", hostTip, "meta"));
+      items.push(sceneChoices);
+    }
+    items.push(btn("Разыграть свой ход", approachDialog), btn("Спросить о возможных действиях", gmDialog));
+  }
+  items.push(btn("Свериться с правилами", () => { dlg.close(); location.hash = "rules"; }));
+  panel.replaceChildren(...items);
+}
+
+function approachDialog() {
+  const page = state.story.id, rev = state.rev;
+  const way = options([["talk", "Переговоры"], ["search", "Исследование"], ["help", "Помощь"], ["other", "Свой способ"]]);
+  const words = el("textarea"); words.required = true; words.maxLength = 240;
+  words.name = "approach";
+  way.name = "method";
+  modal("Свой ход за столом", el("p", state.story.title + " · " + realm().name, "meta"),
+    el("p", "Опишите действие и согласуйте исход с группой. При необходимости бросьте кубики. Ведущий может сверить показатели с бумажным листом."),
+    makeForm(() => command({op:"approach", scene:page, rev, way:way.value, text:words.value}, () => dlg.close()),
+      field("Как действуете", way), field("Что произошло на поле", words), submit("Записать ход")));
 }
 
 function focusMeeting() {
@@ -672,8 +822,13 @@ function promiseLines(card) {
   lines.push(record.label + ". " + stampText(record.closed), record.scene);
   if (record.changes.length) {
     lines.push(...record.changes.map((c) => c.name + " " + c.before + " → " + c.after));
-  } else lines.push("Общие показатели не изменились.");
-  if (card.afterword) lines.push(card.afterword);
+  } else if (!card.ownerHero) lines.push("Общие показатели не изменились.");
+  if (record.receipt) {
+    const r = record.receipt;
+    lines.push((r.mode === "courier" ? "Письмо к последнему звону. " : "Ответ получен лично. ") + stampText(r.when),
+      r.text, ...r.changes.map((c) => c.name + " " + c.before + " → " + c.after));
+  } else if (card.ownerHero && card.text) lines.push(card.text);
+  if (card.afterword && card.afterword !== record.scene) lines.push(card.afterword);
   return lines;
 }
 
@@ -684,6 +839,7 @@ function savePromises() {
     lines.push("", card.name, ...promiseLines(card));
   }
   for (const m of st.milestones || []) lines.push("", ...milestoneLines(m));
+  for (const r of st.approaches || []) lines.push("", r.label, stampText(r.when), r.text);
   for (const r of st.roadJournal || []) {
     lines.push("", r.title, r.kingdom + " · глава " + r.chapter + " · " + r.npc, r.choice, r.text);
     if (r.signed) lines.push(stampText(r.signed));
@@ -726,7 +882,7 @@ function drawPromises() {
   const content = $("promisePages");
   if (!content || !dlg.open) return;
   const st = state.story,
-    cards = st.promises || [],
+    cards = [...(st.promises || [])].sort((a,b) => Number(b.ownerHero === mine()) - Number(a.ownerHero === mine())),
     saved = st.verdictReceipt;
   const key = JSON.stringify([
     cards,
@@ -736,13 +892,15 @@ function drawPromises() {
     mine(),
     state.party.realm,
     st.chapter,
+    state.session.status,
+    st.approaches,
   ]);
   if (content.dataset.view === key) return;
   content.dataset.view = key;
   const sections = cards.map((card) => {
-    const block = section(card.name, ...promiseLines(card).map((line) => el("p", line)));
-    const hero = mine();
-    if (hero && card.choices.length) {
+    const block = section(card.name, card.ownerHero ? el("p", "Личное слово · " + hero(card.ownerHero).name, "meta") : null,
+      ...promiseLines(card).map((line) => el("p", line)));
+    if (canSign(card)) {
       const buttons = el("div", null, "stack");
       for (const c of card.choices) {
         buttons.append(
@@ -752,7 +910,7 @@ function drawPromises() {
               op: "promise",
               parcel: card.key,
               choice: c.id,
-              hero,
+              hero: mine(),
               realm: state.party.realm,
               chapter: st.chapter,
             },
@@ -764,8 +922,8 @@ function drawPromises() {
         );
       }
       block.append(buttons);
-    } else if (card.choices.length)
-      block.append(el("p", "Чтобы расписаться, выберите своего героя.", "meta"));
+    } else if (playing() && card.choices.length)
+      block.append(el("p", card.actor ? "Решение принимает " + hero(card.actor).name + "." : "Чтобы расписаться, выберите своего героя.", "meta"));
     const heading = block.querySelector("h3");
     heading.id = "promise-" + card.key;
     heading.tabIndex = -1;
@@ -799,7 +957,9 @@ function drawPromises() {
       ),
     );
   if (st.roadJournal?.length) sections.push(details("Решения в пути", roadJournal()));
-  if (saved || st.milestones?.length || st.roadJournal?.length || cards.some((c) => c.record))
+  if (st.approaches?.length) sections.push(details("Свои ходы за столом", ...st.approaches.map((r) =>
+    section(r.label, el("p", stampText(r.when), "meta"), el("p", r.text)))));
+  if (saved || st.milestones?.length || st.roadJournal?.length || st.approaches?.length || cards.some((c) => c.record))
     sections.push(btn("Скачать выписку", savePromises));
   content.replaceChildren(...sections);
 }
@@ -820,9 +980,14 @@ function controls() {
     p.weatherDue,
     p.fightDue,
     p.dealt,
+    state.session.status,
   ]);
   if (key === controlsKey) return;
   controlsKey = key;
+  if (!playing()) {
+    area.replaceChildren(el("p", "Положение поля сохранено. Сверьте расстановку фигур перед продолжением."));
+    return;
+  }
   const list = el("div", null, "stack");
   if (state.you.heroId && s) {
     const t = s.tokens.find((t) => t.kind === "hero" && t.ref === mine());
@@ -1254,8 +1419,10 @@ async function poll() {
   if (!state || polling || busy) return;
   polling = true;
   try {
-    const old = state.rev;
-    await accept((await request("/api/state?since=" + old)).state);
+    const old = state.rev, epoch = roomEpoch, code = state.code;
+    const received = (await request("/api/state?since=" + old)).state;
+    if (epoch !== roomEpoch || (received && received.code !== code)) return;
+    await accept(received);
     if (state.rev !== old && dlg.open && $("openLogList")) {
       $("openLogList").replaceChildren(...state.log.slice().reverse().map(logLine));
       $("openRoadJournal").replaceChildren(roadJournal());
@@ -1275,14 +1442,21 @@ async function init() {
     online = await module.makeOnline();
     book = await request("/api/lobby");
   }
+  const epoch = roomEpoch;
   try {
-    const saved = (await request("/api/state")).state;
-    if (saved && (!invitation || saved.code === invitation.toUpperCase())) await accept(saved);
-  } catch {
+    const saved = (invitation
+      ? await request("/api/switch", {method:"POST", body:{code:invitation.trim().toUpperCase()}})
+      : await request("/api/state")).state;
+    if (saved && epoch === roomEpoch && (!invitation || saved.code === invitation.toUpperCase())) await accept(saved);
+  } catch (error) {
+    if (invitation && /паузу|завершите встречу/.test(error.message) && epoch === roomEpoch) {
+      const current = (await request("/api/state")).state;
+      if (current && epoch === roomEpoch) { await accept(current); await myTables(); }
+    }
     /* New device starts in the lobby. */
   }
   render();
-  if (invitation && !state) access(true);
+  if (invitation && !state && !dlg.open) access(true);
   setInterval(poll, 1800);
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) void poll();
@@ -1290,12 +1464,13 @@ async function init() {
 }
 $("createButton").onclick = () => access(false);
 $("joinButton").onclick = () => access(true);
-$("roomButton").onclick = () => (state ? invite() : access(true));
+$("roomButton").onclick = () => myTables().catch(report);
 $("invite").onclick = invite;
 $("openDice").onclick = diceDialog;
 $("openGm").onclick = gmDialog;
 $("openLog").onclick = logDialog;
 $("openPromises").onclick = promiseDialog;
+$("stepMenu").onclick = turnMenu;
 $("openPrologue").onclick = () =>
   modal(
     "У брода",

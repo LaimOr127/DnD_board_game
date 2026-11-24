@@ -1,5 +1,7 @@
 """One set of table permissions and actions for LAN and browser-hosted rooms."""
 import engine as E
+import checkpoints
+import freeplay
 import promises
 import roadside
 import story
@@ -7,15 +9,31 @@ import story
 
 PERSONAL = {"claim", "roll", "grow", "fork", "boon", "technique", "potion",
             "hp", "sparks", "pencil", "capstone", "release", "move", "note",
-            "equip", "condition", "help", "promise"}
+            "equip", "condition", "help", "promise", "approach"}
 SHARED = {"story", "enemies", "round", "reward", "seal", "travel", "weather",
           "rest", "lodge", "spawn", "scene", "end", "deal", "lever", "clearFight",
           "resource", "portal", "deed", "creatureHp", "bell", "roadFight", "meeting"}
 
 
+def configure_table(table, body):
+    mode = body.get("mode", "campaign")
+    title = body.get("title", "")
+    if mode not in ("campaign", "free") or not isinstance(title, str) or len(title) > 48 or (title.strip() and not title.strip().isprintable()):
+        raise ValueError("Выберите режим и название до 48 знаков.")
+    table["mode"] = mode
+    table["title"] = title.strip() or ("Свободный стол" if mode == "free" else "Море имён")
+
+
 def snapshot(table, sid):
     state = E.view(table, sid)
-    state.update(host=table.get("host") == sid, story=story.visible(table))
+    state.update(host=table.get("host") == sid, mode=table.get("mode", "campaign"), title=table.get("title", "Море имён"),
+                 session=checkpoints.summary(table))
+    if state["mode"] == "free":
+        state.update(freeplay=freeplay.view(table), heroes={}, party={}, scene=None, story=None)
+        return state
+    state["story"] = story.visible(table)
+    state["story"]["promises"] = [card for card in state["story"]["promises"]
+                                  if "ownerHero" not in card or card["record"] or card["ownerHero"] == state["you"]["heroId"]]
     for hero in state["heroes"].values():
         hero["equipment"] = table["heroes"][hero["id"]].get("equipment", {})
         if hero["owner"] != sid:
@@ -30,7 +48,7 @@ def narration(table, question):
         lines = []
         for card in page["promises"]:
             record = card["record"] or {}
-            lines.append(" ".join(filter(None, (card["name"] + ".", record.get("scene") or card["text"],
+            lines.append(" ".join(filter(None, (card["name"] + ".", record.get("receipt", {}).get("text") or record.get("scene") or card["text"],
                                                 "" if "outcome" in record else card["route"]))))
         return "\n".join(lines)
     if page["verdictReceipt"] and any(w in q for w in ("финал", "развязк", "приговор")):
@@ -52,7 +70,15 @@ def narration(table, question):
 def act(table, sid, action):
     if sid not in table["seats"] or not isinstance(action, dict):
         return E.fail(table, "Сначала войдите в комнату.")
+    if checkpoints.status(table) != "active":
+        return E.fail(table, checkpoints.HOLD)
     op = action.get("op")
+    if table.get("mode") == "free":
+        if op in ("freeSheet", "freeRoll"):
+            return freeplay.act(table, sid, action)
+        if op == "note" and isinstance(action.get("text"), str) and len(action["text"]) <= 280:
+            return E.apply(table, sid, action)
+        return E.fail(table, "Выберите действие свободного планшета.")
     if not isinstance(op, str) or op not in PERSONAL | SHARED:
         return E.fail(table, "Неизвестное действие.")
     if op in SHARED and sid != table.get("host"):
@@ -121,6 +147,18 @@ def act(table, sid, action):
             return E.fail(table, "Выберите противника и его здоровье.")
         token["hp"] = min(token["maxHp"], action["value"])
         E.log(table, sid, "scene", f"{token['name']} — {token['hp']} из {token['maxHp']} ОЗ по итогам хода на столе.")
+        return {"ok": True}
+    if op == "approach":
+        methods = {"talk": "Переговоры", "search": "Исследование", "help": "Помощь", "other": "Свой способ"}
+        words = action.get("text")
+        method = methods.get(action.get("way"))
+        if (not method or not isinstance(words, str) or not 1 <= len(words.strip()) <= 240
+                or action.get("scene") != story.visible(table)["id"]):
+            return E.fail(table, "Сверьте текущую сцену, выберите способ и опишите ход до 240 знаков.")
+        s = table.setdefault("story", story.initial(table))
+        stamp = E.campaign_stamp(table, sid, table["seats"][sid]["heroId"])
+        s.setdefault("approaches", []).append({"when": stamp, "label": method, "text": words.strip()})
+        E.log(table, sid, "note", f"{method} · {stamp['realm']}. {words.strip()}")
         return {"ok": True}
     if op == "story":
         return story.choose(table, sid, action)

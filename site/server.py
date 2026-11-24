@@ -57,6 +57,9 @@ class GameServer(ThreadingHTTPServer):
         self.recent = {}
         with self.transaction(False) as conn:
             conn.execute("CREATE TABLE IF NOT EXISTS rooms(code TEXT PRIMARY KEY, data TEXT NOT NULL)")
+            conn.execute("CREATE TABLE IF NOT EXISTS checkpoint_files("
+                         "room TEXT NOT NULL, id INTEGER NOT NULL, snapshot TEXT NOT NULL, photo TEXT NOT NULL,"
+                         "PRIMARY KEY(room,id))")
         super().__init__(address, Handler)
 
     @contextmanager
@@ -142,19 +145,59 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
         if cookie:
-            self.send_header("Set-Cookie", f"more_table={cookie}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000" + ("; Secure" if self.server.secure else ""))
+            attrs = "; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000" + ("; Secure" if self.server.secure else "")
+            code, _, token = cookie.partition(".")
+            old, tickets = self.tickets()
+            if old and old != code and old in tickets:
+                self.send_header("Set-Cookie", f"more_seat_{old}={tickets[old]}{attrs}")
+            self.send_header("Set-Cookie", f"more_table={cookie}{attrs}")
+            self.send_header("Set-Cookie", f"more_seat_{code}={token}{attrs}")
         self.end_headers()
         self.wfile.write(payload)
 
-    def cookie(self):
+    def tickets(self):
         jar = http.cookies.SimpleCookie()
         try:
             jar.load(self.headers.get("Cookie", ""))
         except http.cookies.CookieError:
-            return "", ""
+            return "", {}
         value = jar["more_table"].value if "more_table" in jar else ""
         code, _, token = value.partition(".")
-        return code, digest(token) if token else ""
+        tickets = {k[10:]: v.value for k,v in jar.items() if re.fullmatch(r"more_seat_[A-Z2-9]{12}", k)
+                   and re.fullmatch(r"[\w-]{20,96}", v.value, re.ASCII)}
+        if re.fullmatch(r"[A-Z2-9]{12}", code) and re.fullmatch(r"[\w-]{20,96}", token, re.ASCII):
+            tickets[code] = token
+        else:
+            code = ""
+        return code, tickets
+
+    def cookie(self):
+        active, tickets = self.tickets()
+        code = self.headers.get("X-Table-Code", active)
+        return code, digest(tickets[code]) if code in tickets else ""
+
+    def guard_leave(self, conn, target):
+        code, identity = self.cookie()
+        if not identity or target == code:
+            return
+        row = conn.execute("SELECT data FROM rooms WHERE code=?", (code,)).fetchone()
+        if row:
+            table = json.loads(row[0])
+            if E.find_seat(table, identity) == table.get("host") and service.checkpoints.status(table) == "active":
+                raise Problem(409, "Сначала поставьте свой текущий стол на паузу или завершите встречу.")
+
+    def tables(self, conn):
+        _, tickets = self.tickets()
+        rows = []
+        for code, token in tickets.items():
+            row = conn.execute("SELECT data FROM rooms WHERE code=?", (code,)).fetchone()
+            if row:
+                table = json.loads(row[0])
+                sid = E.find_seat(table, digest(token))
+                if sid:
+                    rows.append({"code": code, "title": table.get("title", "Море имён"), "mode": table.get("mode", "campaign"),
+                                 "status": service.checkpoints.status(table), "host": sid == table.get("host")})
+        return {"tables": rows}
 
     def room(self, conn):
         code, identity = self.cookie()
@@ -168,6 +211,10 @@ class Handler(BaseHTTPRequestHandler):
         raise Problem(401, "Войдите по коду или откройте новый стол.")
 
     def save(self, conn, table):
+        for point in table.get("checkpoints", []):
+            if "snapshot" in point:
+                conn.execute("INSERT OR IGNORE INTO checkpoint_files VALUES (?,?,?,?)",
+                             (table["code"], point["meta"]["id"], point.pop("snapshot"), point.pop("photo")))
         conn.execute("UPDATE rooms SET data=? WHERE code=?", (encode(E.serial(table)), table["code"]))
 
     def create_or_join(self, path, body):
@@ -177,8 +224,10 @@ class Handler(BaseHTTPRequestHandler):
         self.server.limit((path, self.client_address[0]), 30 if path.endswith("join") else 12, 300)
         token = secrets.token_urlsafe(32)
         with self.server.transaction(True) as conn:
+            self.guard_leave(conn, body.get("code") if path != "/api/create" else None)
             if path == "/api/create":
                 table = E.new_table()
+                service.configure_table(table, body)
                 table["code"] = "".join(secrets.choice(ALPHABET) for _ in range(12))
                 conn.execute("INSERT INTO rooms VALUES (?,?)", (table["code"], "{}"))
             else:
@@ -187,10 +236,10 @@ class Handler(BaseHTTPRequestHandler):
                 if not row:
                     raise Problem(404, "Стол с таким кодом не найден. Сверьте код с приглашением.")
                 table = E.restore(json.loads(row[0]))
-                existing, identity = self.cookie()
-                known = E.find_seat(table, identity) if existing == code else None
+                remembered = self.tickets()[1].get(code)
+                known = E.find_seat(table, digest(remembered)) if remembered else None
                 if known:
-                    return {"state": service.snapshot(table, known)}, None
+                    return {"state": service.snapshot(table, known)}, code + "." + remembered
             sid = E.create_seat(table, name, digest(token))
             if path.endswith("create"):
                 table["host"] = sid
@@ -202,6 +251,9 @@ class Handler(BaseHTTPRequestHandler):
         url = urlsplit(self.path)
         path = url.path
         if self.command == "GET":
+            if path == "/api/tables":
+                with self.server.transaction(False) as conn:
+                    return self.reply(200, self.tables(conn))
             if path == "/api/lobby":
                 return self.reply(200, E.compendium(None))
             if path in ("/api/book", "/api/state"):
@@ -234,19 +286,61 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get_content_type() != "application/json":
             raise Problem(415, "Ожидается JSON.")
         length = int(self.headers.get("Content-Length", "0"))
-        if not 1 <= length <= 5000:
+        if not 1 <= length <= (270000 if path == "/api/checkpoints" else 5000):
             raise Problem(413, "Слишком большой запрос.")
         body = json.loads(self.rfile.read(length))
         if not isinstance(body, dict):
             raise Problem(400, "Некорректная команда.")
+        if path == "/api/switch":
+            code = body.get("code")
+            if not isinstance(code, str) or code not in self.tickets()[1]:
+                raise Problem(404, "Этот стол ещё не посещали в этом браузере.")
+            token = self.tickets()[1][code]
+            with self.server.transaction(False) as conn:
+                self.guard_leave(conn, code)
+                row = conn.execute("SELECT data FROM rooms WHERE code=?", (code,)).fetchone()
+                table = E.restore(json.loads(row[0])) if row else None
+                sid = E.find_seat(table, digest(token)) if table else None
+                if not sid:
+                    raise Problem(403, "Для этого стола нужно приглашение.")
+                table["model"] = bool(self.server.ai_key or self.server.local_model)
+                return self.reply(200, {"state": service.snapshot(table, sid)}, cookie=code + "." + token)
         if path in ("/api/create", "/api/join"):
             value, cookie = self.create_or_join(path, body)
             return self.reply(200, value, cookie=cookie)
+        if path == "/api/checkpoints":
+            read_only = body.get("op") == "photo"
+            with self.server.transaction(not read_only) as conn:
+                table, sid = self.room(conn)
+                if body.get("op") in ("photo", "restore") and type(body.get("id")) is int and 0 < body["id"] < 2**63:
+                    if body["op"] == "restore" and sid != table.get("host"):
+                        raise Problem(403, "Встречей управляет создатель стола.")
+                    point = next((p for p in table.get("checkpoints", []) if p["meta"]["id"] == body["id"]), None)
+                    if point and "snapshot" not in point:
+                        files = conn.execute("SELECT snapshot,photo FROM checkpoint_files WHERE room=? AND id=?",
+                                             (table["code"], body["id"])).fetchone()
+                        if not files:
+                            raise Problem(503, "Файл этого сохранения недоступен.")
+                        point["snapshot"], point["photo"] = files
+                if not read_only:
+                    self.server.limit(("save", table["code"]), 40, 60)
+                try:
+                    value = service.checkpoints.apply(table, sid, body)
+                except ValueError as exc:
+                    raise Problem(409, str(exc)) from exc
+                if not read_only:
+                    self.save(conn, table)
+                    value = {"state": service.snapshot(table, sid)}
+            return self.reply(200, value)
         if path not in ("/api/action", "/api/gm"):
             raise Problem(404, "Действие не найдено.")
         if path.endswith("gm"):
             with self.server.transaction(False) as conn:
                 table, sid = self.room(conn)
+                if table.get("mode") == "free":
+                    raise Problem(409, "В свободном режиме сюжет ведёт ваша группа.")
+                if service.checkpoints.status(table) != "active":
+                    raise Problem(409, service.checkpoints.HOLD)
                 question = body.get("question")
                 if not isinstance(question, str) or not 1 <= len(question.strip()) <= 500:
                     raise Problem(400, "Введите вопрос до 500 знаков.")

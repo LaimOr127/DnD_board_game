@@ -21,6 +21,7 @@ def handle(raw):
     sid = E.find_seat(table, token)
     before = table["rev"]
     if path == "/api/create" and req["local"] and not req.get("saved"):
+        service.configure_table(table, body)
         table["code"] = req["code"]
         sid = E.create_seat(table, name, token)
         table["host"] = sid
@@ -34,6 +35,10 @@ def handle(raw):
         table["model"] = bool(req.get("model"))
         E.bump(table)
     if path in ("/api/gm", "/internal/prompt"):
+        if table.get("mode") == "free":
+            raise ValueError("В свободной игре историю ведут участники стола.")
+        if service.checkpoints.status(table) != "active":
+            raise ValueError(service.checkpoints.HOLD)
         q = body.get("question")
         if not isinstance(q, str) or not q.strip() or len(q) > 500:
             raise ValueError("Введите вопрос, до 500 знаков.")
@@ -58,6 +63,10 @@ def handle(raw):
             raise ValueError("Пока ведущий отвечал, ситуация изменилась. Задайте вопрос ещё раз.")
         E.log(table, sid, "question", q)
         E.log(table, "table", "gm", ("ИИ-ведущий. " + req["answer"]) if req.get("answer") else "Сказитель. " + answer)
+    elif path == "/api/checkpoints":
+        value = service.checkpoints.apply(table, sid, body)
+        if value is not None:
+            return json.dumps({"value": value, "saved": None})
     elif path == "/api/action":
         result = service.act(table, sid, body)
         if not result["ok"]:

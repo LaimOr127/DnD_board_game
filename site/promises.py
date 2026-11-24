@@ -2,6 +2,7 @@
 from typing import NamedTuple
 
 import engine as E
+import personal
 
 
 class Ending(NamedTuple):
@@ -74,7 +75,7 @@ def view(table, story):
         elif "outcome" not in record and quiet and party["realm"] == errand.realm and story["page"] in errand.pages:
             row.update(text=errand.handover, choices=[{"id": k, "label": p.label} for k, p in errand.paths.items()])
         cards.append(row)
-    return cards
+    return cards + personal.view(table, story)
 
 
 def act(table, seat, story, action):
@@ -88,6 +89,8 @@ def act(table, seat, story, action):
     choice = action.get("choice")
     if not card or not any(c["id"] == choice for c in card["choices"]):
         return E.fail(table, "Эта запись сейчас недоступна. Проверьте срок и состояние поручения.")
+    if "ownerHero" in card:
+        return personal.act(table, seat, story, hero, card, choice)
     errand = ERRANDS[card["key"]]
     if choice == "take":
         story.setdefault("promises", {})[card["key"]] = {"taken": E.campaign_stamp(table, seat, hero)}
@@ -138,4 +141,4 @@ def echoes(story):
         else:
             path = errand.paths[outcome]
             lines.append(path.epilogue if page == "epilogue" else path.later)
-    return lines
+    return lines + personal.echoes(story)

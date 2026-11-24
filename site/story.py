@@ -183,7 +183,7 @@ def visible(table):
         "echoes": echoes(table, s), "history": list(s["history"]), "ending": page == "epilogue",
         "meeting": roadside.current(table, s), "roadJournal": reports, "news": news,
         "promises": promises.view(table, s), "verdictReceipt": s.get("verdictReceipt"),
-        "milestones": s.get("milestones", []),
+        "milestones": s.get("milestones", []), "approaches": s.get("approaches", []),
     }
 
 
@@ -428,6 +428,7 @@ def choose(table, seat, action):
         next_page = "retry" if choice == "retreat" else "verdict"
     elif page == "verdict":
         roadside.deliver(table, seat, s, epilogue=True)
+        promises.personal.finish(table, seat, s)
         s["ending"], reason = verdict_result(s, party, choice)
         s["verdictReceipt"] = {"choice": options[choice], "title": E.endings[s["ending"]][0],
                                "reason": reason, "when": stamp}

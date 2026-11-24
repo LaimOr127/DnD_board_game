@@ -2,7 +2,7 @@ import sys,json,random,statistics,math,hashlib
 from pathlib import Path
 import numpy as np,trimesh,pymupdf
 from PIL import Image,ImageDraw,ImageOps
-from printkit import OUT,ROOT,cards,MOBS,BOSSES,heroes,items,schools
+from printkit import OUT,ROOT,cards,MOBS,BOSSES,heroes,items,schools,QUESTS
 from world import realms,edges,acts,endings
 from edicts import edicts
 from extras import local
@@ -48,7 +48,7 @@ def main():
         mesh=trimesh.load_mesh(p)
         if not (mesh.is_watertight and mesh.is_winding_consistent and mesh.volume>0 and np.isfinite(mesh.vertices).all()):faults.append(p.parent.name+'/'+p.name)
     if faults:raise AssertionError(('STL',len(faults),faults))
-    expected=[7,18,27,8,2,34,12,5,8];pdfs=sorted(OUT.glob('*.pdf'));assert len(pdfs)==9;pagecounts={};tmp=ROOT/'qa-temp';tmp.mkdir(exist_ok=True);allthumb=[]
+    expected=[7,21,45,8,2,34,12,5,8];pdfs=sorted(OUT.glob('*.pdf'));assert len(pdfs)==9;pagecounts={};tmp=ROOT/'qa-temp';tmp.mkdir(exist_ok=True);allthumb=[]
     for ix,p in enumerate(pdfs):
         d=pymupdf.open(p);assert len(d)==expected[ix],(p,len(d));pagecounts[p.name]=len(d);alltext=''
         for pi,pg in enumerate(d):
@@ -56,12 +56,35 @@ def main():
         if ix in [4,5,6,7]:
             pref=['H','M','B','I'][ix-4];assert all(k in alltext for k in cards if k[0]==pref),(p,'missing card')
         if ix in [0,1,2]:assert 'МОРЕ' in alltext and '□' not in alltext
+        if ix == 1:
+            assert "Слово своего героя" in d[18].get_text()
+            assert "Как оставить стол до следующей встречи" in d[19].get_text()
+            free_table = ' '.join(d[20].get_text().split())
+            assert 'Свободный стол для другой игры' in free_table and 'Меню хода' in free_table
+            for threshold in (8, 9):
+                count = sum(a + b + 1 >= threshold for a in range(1, 7) for b in range(1, 7))
+                assert f'{count} из 36' in free_table
+        if ix == 2:
+            register = (ROOT/'design'/'campaign-register.md').read_text(encoding='utf8')
+            assert set(QUESTS) == {f'H{i:02}' for i in range(1, 19)}
+            for i, (hero_id, quest) in enumerate(sorted(QUESTS.items())):
+                page = ' '.join(d[27+i].get_text().split()).casefold()
+                assert set(quest.paths) == {'a', 'b'} and quest.realm != quest.reply_realm
+                passages = [hero_id, heroes[i][0], quest.title, quest.offer, quest.meeting, quest.unfinished,
+                            realms[quest.realm-1][0], realms[quest.reply_realm-1][0]]
+                for branch in quest.paths.values():
+                    passages.extend([branch.label, branch.scene, branch.reply, branch.epilogue])
+                for passage in passages:
+                    assert passage.casefold() in page and passage in register, (hero_id, passage)
         d.close()
+    guide = (OUT/'Начать здесь.txt').read_text(encoding='utf8')
+    for label in ('01 Правила', '02 Кампания и атлас'):
+        assert f"{label} — {pagecounts[label + '.pdf']} страниц" in guide
     for k in range(0,len(allthumb),40):
         sel=allthumb[k:k+40];sheet=Image.new('RGB',(1000,math.ceil(len(sel)/8)*163),'#c9c4b4');dr=ImageDraw.Draw(sheet)
         for j,(tag,im) in enumerate(sel):
             pic=ImageOps.contain(im,(118,143));x=(j%8)*125;y=(j//8)*163;sheet.paste(pic,(x,y));dr.text((x,y+143),tag,fill='black')
         sheet.save(tmp/f'all-{k}.jpg')
     simulations=[sim(n,t,n*971+t) for n in range(2,7) for t in [1,3,5]]
-    res={'контент':{'герои':18,'обычные':300,'боссы':100,'вещи':40,'королевства':10,'народы':10,'регионы_связны':True,'финалы':8,'местные_контракты':30,'главы':5},'проверка':{'файлы_STL':len(geom),'открытые_рёбра_или_плохой_обход':len(faults),'карточки_PNG':len(images),'страницы_PDF':pagecounts,'все_страницы_отрисованы':True},'модель':'Условный неподвижный босс; все бьют штатным оружием по сильной характеристике, фокус врага по раненому. Без рун, лечения, брони, критической искры, особенностей, сигналов, движения и переговоров. Проверяет только базовую арифметику боя. Это не плейтест.','моделирование':simulations};(OUT/'Проверка.json').write_text(json.dumps(res,ensure_ascii=False,indent=2),encoding='utf8');print(json.dumps(res,ensure_ascii=False,indent=1))
+    res={'контент':{'герои':18,'обычные':300,'боссы':100,'вещи':40,'королевства':10,'народы':10,'регионы_связны':True,'финалы':8,'местные_контракты':30,'главы':5,'общие_поручения_Неры':2,'личные_поручения':len(QUESTS),'личные_решения':sum(len(q.paths) for q in QUESTS.values())},'проверка':{'файлы_STL':len(geom),'открытые_рёбра_или_плохой_обход':len(faults),'карточки_PNG':len(images),'страницы_PDF':pagecounts,'все_страницы_отрисованы':True},'модель':'Условный неподвижный босс; все бьют штатным оружием по сильной характеристике, фокус врага по раненому. Без рун, лечения, брони, критической искры, особенностей, сигналов, движения и переговоров. Проверяет только базовую арифметику боя. Это не плейтест.','моделирование':simulations};(OUT/'Проверка.json').write_text(json.dumps(res,ensure_ascii=False,indent=2),encoding='utf8');print(json.dumps(res,ensure_ascii=False,indent=1))
 if __name__=='__main__':main()

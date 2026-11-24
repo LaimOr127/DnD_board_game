@@ -1,0 +1,60 @@
+.save-panel, .save-form, .save-preview, .save-point {
+  display: grid;
+  gap: .8rem;
+}
+.save-panel { overflow-wrap: anywhere; }
+.save-panel > button, .save-form > button, .save-preview > button { justify-self: start; }
+.save-panel p + p, .save-form label, .save-point p, .save-points, .save-preview { margin: 0; }
+.save-form textarea { display: block; width: 100%; }
+.save-photo-controls, .save-actions, .save-point-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .55rem;
+}
+.save-picker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: .45rem .85rem;
+  background: var(--surface);
+  border: 1px solid var(--edge);
+  border-radius: 5px;
+  cursor: pointer;
+}
+.save-picker input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  clip-path: inset(50%);
+  padding: 0;
+}
+.save-picker:hover { border-color: var(--gold); }
+.save-picker:focus-within { outline: 3px solid var(--gold); outline-offset: 3px; }
+.save-camera { display: none; }
+@media (any-pointer: coarse) { .save-camera { display: inline-flex; } }
+.save-status, .save-upload-status, .save-point time, .save-where {
+  color: var(--muted);
+  font-size: .9375rem;
+}
+.save-photo {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: min(46vh, 24rem);
+  border-radius: .3rem;
+}
+.save-actions:empty, .save-preview:empty, .save-upload-status:empty, .save-status:empty { display: none; }
+.save-points { display: grid; gap: 0; list-style: none; padding: 0; }
+.save-point { border-top: 1px solid var(--edge); padding: 1.05rem 0; gap: .48rem; }
+.save-point-head { justify-content: space-between; }
+.save-point-head h3 { font-size: 1.3rem; }
+.save-point time { font-variant-numeric: tabular-nums; }
+.save-author { font-weight: 600; }
+.save-point-note { white-space: pre-wrap; }
+.save-point .save-photo { margin-top: .25rem; }
+.save-recheck { border-inline-start: 3px solid var(--gold); padding-inline-start: .75rem; }
+.save-recheck p { margin-bottom: .5rem; }
