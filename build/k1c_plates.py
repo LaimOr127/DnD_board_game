@@ -57,27 +57,27 @@ def geometry(parts):
     return meshes
 
 
-def arrange(parts, meshes, columns):
+def arrange(parts, meshes, columns, gap=GAP):
     rows = list(batched(parts, columns))
     depth = [max(meshes[part].extents[1] for part in row) for row in rows]
-    y = (BED + sum(depth) + GAP * (len(rows) - 1)) / 2
+    y = (BED + sum(depth) + gap * (len(rows) - 1)) / 2
     placements = []
     for row, row_depth in zip(rows, depth):
         width = [meshes[part].extents[0] for part in row]
-        x = (BED - sum(width) - GAP * (len(row) - 1)) / 2
+        x = (BED - sum(width) - gap * (len(row) - 1)) / 2
         y -= row_depth
         for part, part_width in zip(row, width):
             offset = (x, y + (row_depth - meshes[part].extents[1]) / 2, 0)
             placements.append((part, offset))
-            x += part_width + GAP
-        y -= GAP
+            x += part_width + gap
+        y -= gap
     bounds = [np.array(offset) + meshes[part].bounds for part, offset in placements]
     for low, high in bounds:
         if (low[:2] < MARGIN).any() or (high[:2] > BED - MARGIN).any() or high[2] > HEIGHT:
             raise ValueError(f'Model outside the reserved print area: {low}–{high}')
     for (low, high), (other_low, other_high) in combinations(bounds, 2):
         axis_gap = np.maximum(other_low - high, low - other_high)
-        if max(axis_gap[:2]) < GAP - 1e-5:
+        if max(axis_gap[:2]) < gap - 1e-5:
             raise ValueError(f'Insufficient clearance: {low}, {other_low}')
     return placements
 

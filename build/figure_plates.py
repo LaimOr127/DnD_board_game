@@ -71,7 +71,8 @@ def main():
         for name,codes,columns in plates:
             parts = [pieces(catalog[key][0],[key])[0] for key in codes]
             meshes = geometry(parts)
-            placements = arrange(parts,meshes,columns)
+            # The flying rays need extra clearance for their long under-wing supports.
+            placements = arrange(parts,meshes,columns,gap=22) if name == '10-M281-M290' else arrange(parts,meshes,columns)
             for pos,(part,_) in enumerate(placements):
                 code = part[1]
                 mesh = meshes[part]
