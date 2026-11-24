@@ -1,0 +1,10 @@
+game.example.org {
+    encode zstd gzip
+    header Strict-Transport-Security "max-age=31536000"
+    request_body {
+        max_size 270000
+    }
+    reverse_proxy more-imen-game:8765 {
+        header_up X-More-Client-IP {remote_host}
+    }
+}

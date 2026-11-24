@@ -1,7 +1,8 @@
-"""Start a shared Море имён table on a trusted home network. Python 3.10+."""
+"""Start the Море имён table on a home network or behind an HTTPS reverse proxy."""
 import argparse
 import hashlib
 import http.cookies
+import ipaddress
 import json
 import mimetypes
 import os
@@ -51,6 +52,7 @@ class GameServer(ThreadingHTTPServer):
     def __init__(self, address, db):
         self.db = str(db)
         self.secure = os.getenv("TABLE_HTTPS") == "1"
+        self.trusted_proxy = os.getenv("TABLE_TRUST_PROXY")
         self.ai_key = os.getenv("OPENAI_API_KEY")
         self.local_model = os.getenv("OLLAMA_MODEL")
         self.ai_lock = threading.BoundedSemaphore(2)
@@ -133,6 +135,18 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, pattern, *args):
         pass  # Neither room invitations nor names belong in the console.
+
+    def client_ip(self):
+        peer = self.client_address[0]
+        remote = self.headers.get("X-More-Client-IP")
+        if self.server.trusted_proxy and remote:
+            try:
+                addresses = socket.getaddrinfo(self.server.trusted_proxy, None, type=socket.SOCK_STREAM)
+                if any(address[-1][0] == peer for address in addresses):
+                    return str(ipaddress.ip_address(remote))
+            except (OSError, ValueError):
+                pass
+        return peer
 
     def reply(self, status, data, content="application/json; charset=utf-8", cookie=None):
         if isinstance(data, dict) and data.get("state") and self.server.server_address[0] == "0.0.0.0" and self.server.lan_addresses:
@@ -223,7 +237,7 @@ class Handler(BaseHTTPRequestHandler):
         name = body.get("name")
         if not isinstance(name, str) or not name.strip() or len(name) > 24:
             raise Problem(400, "Введите имя длиной от 1 до 24 знаков.")
-        self.server.limit((path, self.client_address[0]), 30 if path.endswith("join") else 12, 300)
+        self.server.limit((path, self.client_ip()), 30 if path.endswith("join") else 12, 300)
         token = secrets.token_urlsafe(32)
         with self.server.transaction(True) as conn:
             self.guard_leave(conn, body.get("code") if path != "/api/create" else None)
@@ -253,6 +267,11 @@ class Handler(BaseHTTPRequestHandler):
         url = urlsplit(self.path)
         path = url.path
         if self.command == "GET":
+            if path == "/healthz":
+                with self.server.transaction(False) as conn:
+                    conn.execute("SELECT 1 FROM rooms LIMIT 1").fetchone()
+                    conn.execute("SELECT 1 FROM checkpoint_files LIMIT 1").fetchone()
+                return self.reply(200, {"ok": True})
             if path == "/api/tables":
                 with self.server.transaction(False) as conn:
                     return self.reply(200, self.tables(conn))

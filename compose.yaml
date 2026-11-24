@@ -1,0 +1,42 @@
+name: more-imen
+
+services:
+  game:
+    build: .
+    image: more-imen:local
+    init: true
+    restart: unless-stopped
+    environment:
+      TABLE_HTTPS: "1"
+      TABLE_TRUST_PROXY: "${TABLE_TRUST_PROXY:-caddy}"
+    expose:
+      - "8765"
+    volumes:
+      - game-data:/data
+    networks:
+      edge:
+        aliases:
+          - more-imen-game
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 320m
+    pids_limit: 160
+    logging:
+      driver: local
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/healthz', timeout=3).close()"]
+      interval: 20s
+      start_period: 10s
+      timeout: 5s
+      retries: 3
+
+networks:
+  edge:
+    external: true
+    name: "${TABLE_EDGE_NETWORK:?Set the HTTPS proxy Docker network}"
+
+volumes:
+  game-data:

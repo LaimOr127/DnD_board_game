@@ -12,6 +12,24 @@ from test_checkpoints import JPEG
 
 
 class SharedTableTest(unittest.TestCase):
+    def test_health_opens_both_sqlite_tables_without_session(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with GameServer(("127.0.0.1", 0), Path(directory) / "rooms.db") as server:
+                worker = threading.Thread(target=server.serve_forever, daemon=True)
+                worker.start()
+                try:
+                    url = f"http://127.0.0.1:{server.server_port}/healthz"
+                    with urllib.request.urlopen(url, timeout=5) as result:
+                        self.assertEqual({"ok": True}, json.load(result))
+                    with server.transaction(True) as conn:
+                        conn.execute("DROP TABLE checkpoint_files")
+                    with self.assertRaises(urllib.error.HTTPError) as error:
+                        urllib.request.urlopen(url, timeout=5)
+                    self.assertEqual(503, error.exception.code)
+                finally:
+                    server.shutdown()
+                    worker.join(timeout=5)
+
     def test_two_devices_rejoin_and_keep_physical_roll_after_restart(self):
         with tempfile.TemporaryDirectory() as directory:
             db = Path(directory) / "rooms.db"

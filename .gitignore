@@ -6,3 +6,5 @@ qa-temp/
 site/dist/
 site/data/
 site/.sites-runtime/
+.env
+.env.*
