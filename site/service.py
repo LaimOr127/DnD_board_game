@@ -9,10 +9,10 @@ import story
 
 PERSONAL = {"claim", "roll", "grow", "fork", "boon", "technique", "potion",
             "hp", "sparks", "pencil", "capstone", "release", "move", "note",
-            "equip", "condition", "help", "promise", "approach"}
+            "equip", "condition", "help", "promise", "approach", "bell"}
 SHARED = {"story", "enemies", "round", "reward", "seal", "travel", "weather",
           "rest", "lodge", "spawn", "scene", "end", "deal", "lever", "clearFight",
-          "resource", "portal", "deed", "creatureHp", "bell", "roadFight", "meeting"}
+          "resource", "portal", "deed", "creatureHp", "roadFight", "meeting"}
 
 
 def configure_table(table, body):
@@ -95,6 +95,34 @@ def act(table, sid, action):
            for k, v in action.items() if k != "faces"):
         return E.fail(table, "Неверный формат действия.")
     scene = table["scene"]
+    bell_turn = turn_cost = None
+    if op in {"move","bell","roll"} and "fromZone" in action and not (scene and scene.get("storyBell")):
+        return E.fail(table, "Сцена переправы изменилась. Откройте карту снова.")
+    if scene and scene.get("storyBell"):
+        if op in {"end", "spawn"}:
+            return E.fail(table, "У переправы своя стража и свой сюжетный итог.")
+        if op in {"move","roll","help","technique","potion","bell"} and not (
+                op == "roll" and action.get("kind") in {"road","oracle"}):
+            hid = table["seats"][sid]["heroId"]
+            token = E.hero_token(table, hid)
+            if not token or not token["hp"]:
+                return E.fail(table, "Ходить может стоящий герой.")
+            if "fromZone" in action and (type(action["fromZone"]) is not int or type(action.get("round")) is not int
+                    or token["zone"] != action["fromZone"] or action["round"] != scene["round"]):
+                return E.fail(table, "Герой уже переместился или раунд сменился. Откройте действие снова.")
+            if scene.get("goal") or scene["round"] > 3 or scene.get("enemyRound") == scene["round"]:
+                return E.fail(table, "Ходы героев закончились. Создатель стола открывает следующий раунд или записывает исход.")
+            bell_turn = scene.get("bellTurns", {}).get(hid, {})
+            if op == "move":
+                if token["id"] != action.get("id") or token["zone"] == action.get("zone"):
+                    return E.fail(table, "Выберите соседнюю зону для своего героя.")
+                turn_cost = "step" if not bell_turn.get("step") else "action"
+                if turn_cost == "action" and action.get("run") is not True:
+                    return E.fail(table, "Бесплатный шаг уже сделан. Для второго шага выберите бег за действие.")
+            else:
+                turn_cost = "action"
+            if bell_turn.get(turn_cost):
+                return E.fail(table, "Действие героя в этом раунде уже потрачено.")
     if op == "roadFight":
         if scene or not table["party"]["fightDue"]:
             return E.fail(table, "На дороге сейчас нет ожидающей стычки.")
@@ -167,6 +195,8 @@ def act(table, sid, action):
     if op == "meeting":
         return roadside.choose(table, sid, table.get("story") or story.initial(table), action)
     result = E.apply(table, sid, action)
+    if result["ok"] and turn_cost:
+        scene.setdefault("bellTurns", {}).setdefault(hid, {})[turn_cost] = True
     if op == "travel" and result.get("road") == 2:
         history = table.get("story") or story.initial(table)
         meeting = roadside.current(table, history)

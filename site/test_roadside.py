@@ -29,8 +29,8 @@ class RoadStories(unittest.TestCase):
     def view(self):
         return service.snapshot(self.table, self.guest)["story"]
 
-    def pick(self, key):
-        self.act("story", scene=self.view()["id"], choice=key)
+    def pick(self, key, paper=False):
+        self.act("story", scene=self.view()["id"], choice=key, paper=paper)
 
     def test_every_kingdom_hero_and_choice_through_the_next_chapter(self):
         self.assertEqual(set(range(1, len(E.realms) + 1)), set(roadside.MEETINGS))
@@ -56,7 +56,7 @@ class RoadStories(unittest.TestCase):
                     self.assertEqual("", self.view()["roadJournal"][0]["news"])
                     self.assertNotIn(path.news, service.narration(self.table, "Какие вести?"))
                     self.table["story"]["page"] = "bell"
-                    self.pick("empty")
+                    self.pick("empty", paper=True)
                     view = self.view()
                     entry, = view["roadJournal"]
                     self.assertEqual([E.HERO_BY[h]["name"] for h in (hero, other)], entry["witnesses"])

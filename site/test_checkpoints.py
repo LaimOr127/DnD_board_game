@@ -33,7 +33,8 @@ class CheckpointTest(unittest.TestCase):
         for private in (JPEG, "snapshot", "host-ticket"):
             self.assertNotIn(private, json.dumps(state))
         self.assertEqual({"photo":JPEG}, self.save("photo", self.g, id=point["id"]))
-        service.act(self.t, self.h, {"op":"round"})
+        self.assertTrue(service.act(self.t, self.h, {"op":"enemies"})["ok"])
+        self.assertTrue(service.act(self.t, self.h, {"op":"round"})["ok"])
         later = E.create_seat(self.t, "Варя", "new-ticket")
         service.act(self.t, later, {"op":"claim", "hero":"H06"})
         previous_rev = self.t["rev"]

@@ -30,8 +30,8 @@ class PromiseTest(unittest.TestCase):
         self.party.update(realm=realm, chapter=chapter)
         self.game.setdefault("story", story.initial(self.game))["page"] = page
 
-    def pick(self, choice):
-        data = {"op": "story", "choice": choice, "scene": story.visible(self.game)["id"]}
+    def pick(self, choice, paper=False):
+        data = {"op": "story", "choice": choice, "scene": story.visible(self.game)["id"], "paper":paper}
         result = service.act(self.game, self.host, data)
         self.assertTrue(result["ok"], result)
 
@@ -115,7 +115,7 @@ class PromiseTest(unittest.TestCase):
         for key in ["listen", "tablecloth"]:
             self.assertTrue(service.act(self.game, self.host, {"op":"meeting", "realm":1, "chapter":1, "choice":key})["ok"])
         self.pick("ribbon")
-        self.pick("empty")
+        self.pick("empty", paper=True)
         page = story.visible(self.game)
         entry, = page["milestones"]
         self.assertEqual((1, "Анна"), (entry["when"]["chapter"], entry["when"]["player"]))

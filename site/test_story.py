@@ -18,9 +18,9 @@ class StoryTests(unittest.TestCase):
         result = E.apply(self.table, self.seat, {"op": op, **data})
         self.assertTrue(result["ok"], result)
 
-    def pick(self, choice):
+    def pick(self, choice, paper=False):
         card = story.visible(self.table)
-        result = story.choose(self.table, self.seat, {"scene": card["id"], "choice": choice})
+        result = story.choose(self.table, self.seat, {"scene": card["id"], "choice": choice, "paper":paper})
         self.assertTrue(result["ok"], (card, result))
 
     def go(self, *realms):
@@ -30,7 +30,7 @@ class StoryTests(unittest.TestCase):
     def reach_court(self):
         self.pick("spoon")
         self.assertEqual("M001", self.table["scene"]["tokens"][-1]["ref"])
-        self.pick("empty")
+        self.pick("empty", paper=True)
         self.assertIn("медная крошка", self.table["party"]["clues"])
         self.assertFalse(story.visible(self.table)["choices"])
         self.go(3)
@@ -104,7 +104,7 @@ class StoryTests(unittest.TestCase):
 
     def test_local_song_cost_and_coincident_rewards(self):
         self.pick("ribbon")
-        self.pick("song-H01")
+        self.pick("song-H01", paper=True)
         self.assertNotIn("I19", self.table["heroes"]["H01"]["potions"])
         self.assertEqual(1, self.table["party"]["street"])
         self.assertEqual(1, self.table["party"]["seals"])

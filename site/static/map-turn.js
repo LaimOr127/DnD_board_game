@@ -15,10 +15,10 @@ export function mountMapTurn({state, book, el, btn, field, options, modal, act, 
   const gate = (p,n) => p.realm !== n && p.portals[p.realm-1] === "open" && p.portals[n-1] === "open";
   const currentHero = s => s.scene.tokens.find(t => t.kind === "hero" && !t.waiting && t.ref === s.you.heroId);
 
-  function record(label, s, payload) {
+  function record(label, s, payload, byPosition = false) {
     const button = btn(label, async () => {
-      if (s.code !== state()?.code || s.rev !== state().rev) throw Error("Положение стола изменилось. Откройте точку на карте ещё раз.");
-      await act({...payload(), rev:s.rev}, close);
+      if (s.code !== state()?.code || (!byPosition && s.rev !== state().rev)) throw Error("Положение стола изменилось. Откройте точку на карте ещё раз.");
+      await act(byPosition ? payload() : {...payload(), rev:s.rev}, close);
     }, "primary");
     return button;
   }
@@ -72,8 +72,13 @@ export function mountMapTurn({state, book, el, btn, field, options, modal, act, 
       else panel.append(el("p",t.name));
     }
     if (!present.length) panel.append(el("p","В зоне нет фигур."));
-    if (hero && adjacentZones(sc,hero.zone).includes(n) && hero.hp > 0 && s.session.status === "active") {
-      panel.append(record("Шагнуть в зону " + n,s,()=>({op:"move",id:hero.id,zone:n})));
+    const turn = sc.bellTurns?.[hero?.ref];
+    const heroPhase = !sc.storyBell || (!sc.goal && sc.round <= 3 && sc.enemyRound !== sc.round);
+    if (hero && heroPhase && adjacentZones(sc,hero.zone).includes(n) && hero.hp > 0 && s.session.status === "active") {
+      const move = {op:"move",id:hero.id,zone:n,...(sc.storyBell ? {fromZone:hero.zone, round:sc.round} : {})};
+      if (!turn?.step) panel.append(record("Шагнуть в зону " + n,s,()=>move,sc.storyBell));
+      else if (!turn.action) panel.append(record("Бежать в зону " + n + " · 1 действие",s,()=>({...move,run:true}),sc.storyBell));
+      else panel.append(el("p","Шаг и действие уже использованы. Дождитесь следующего раунда."));
     }
     panel.append(el("p","Открытые проходы: " + adjacentZones(sc,n).map(k=>k+" · "+sc.zones[k-1]).join(", ") + ".", "small"));
     modal("Зона " + n + " · " + sc.zones[n-1],panel);

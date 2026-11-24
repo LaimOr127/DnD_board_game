@@ -633,6 +633,9 @@ def restore(data):
     data["rng"] = random.SystemRandom()
     data["test_dice"] = False
     data.setdefault("model", False)
+    scene = data.get("scene")
+    if scene and scene["id"] == "bell" and (data.get("story") or {}).get("page") == "bell":
+        scene.setdefault("storyBell", True)
     return data
 
 
@@ -664,19 +667,6 @@ def do_roll(table, seat, action):
     mode = action.get("mode", "flat")
     if mode not in ("flat", "advantage", "disadvantage"):
         return fail(table, "Неизвестный режим броска.")
-    if hero["advantageNext"] and mode == "disadvantage":
-        mode = "flat"
-        hero["advantageNext"] = False
-        adv_note = "Помеха и преимущество погасили друг друга."
-    elif hero["advantageNext"] and mode == "flat":
-        mode = "advantage"
-        hero["advantageNext"] = False
-        adv_note = "Преимущество от помощи или приёма: 3d6, две лучшие."
-    elif hero["advantageNext"] and mode == "advantage":
-        hero["advantageNext"] = False
-        adv_note = "Источник преимущества один, кости не складываются."
-    else:
-        adv_note = ""
     spend_spark = bool(action.get("spark"))
     if spend_spark and "немота" in hero["conditions"]:
         return fail(table, "Немота не позволяет тратить искры.")
@@ -716,7 +706,17 @@ def do_roll(table, seat, action):
     if attack and target is not None:
         dc = target["defense"]
         combat = True
+    first_hound_attack = target and target["ref"] == "M001" and not target.get("attacked")
+    ready_advantage = hero["advantageNext"] or first_hound_attack
+    if ready_advantage:
+        mode = "flat" if mode == "disadvantage" else "advantage"
+    adv_note = ("Помеха и преимущество погасили друг друга." if mode == "flat"
+                else "Преимущество: 3d6, две лучшие.") if ready_advantage else ""
     faces = d6s(table, 3 if mode != "flat" else 2, forced, physical)
+    if ready_advantage:
+        hero["advantageNext"] = False
+    if first_hound_attack:
+        target["attacked"] = True
     kept, dropped = split_dice(faces, mode)
     plus = 1 if hero["plusNext"] else 0
     if plus:
@@ -937,6 +937,12 @@ def enemy_phase(table, seat):
     scene = table["scene"]
     if not scene:
         return fail(table, "Поля нет, страже некого искать.")
+    if scene.get("storyBell"):
+        if scene.get("goal") or scene["round"] > 3:
+            return fail(table, "Переправа уже решилась. Запишите исход первой главы.")
+        if scene.get("enemyRound") == scene["round"]:
+            return fail(table, "Гончие уже ходили в этом раунде.")
+        scene["enemyRound"] = scene["round"]
     g = graph(scene["links"])
     if scene.get("door"):
         g[5].discard(6)
@@ -995,10 +1001,19 @@ def enemy_phase(table, seat):
                     else:
                         token = hero
                         dealt = foe["dmg"]
+                        if foe["ref"] == "M001":
+                            if "надлом" in record["conditions"]:
+                                record["conditions"].remove("надлом")
+                                dealt += 1
+                            else:
+                                record["conditions"].append("надлом")
+                                if scene.get("storyBell"):
+                                    scene.setdefault("bellBreach", {})[token["ref"]] = scene["round"]
+                                note = " Надлом до конца следующего хода героя."
                         before = token["shield"]
                         hurt(token, dealt, False)
                         used = before - token["shield"]
-                        note = f"Урон {dealt}" + (f", щит поглотил {used}" if used else "") + f", осталось {token['hp']}."
+                        note = f"Урон {dealt}" + (f", щит поглотил {used}" if used else "") + f", осталось {token['hp']}." + note
                         record["hp"] = token["hp"]
                         record["shield"] = token["shield"]
                 else:
@@ -1787,9 +1802,41 @@ def bell(table, seat, action):
     scene = table["scene"]
     if not scene or scene["id"] != "bell":
         return fail(table, "Это действие брода.")
+    if scene.get("goal") or scene["round"] > 3 or scene.get("enemyRound") == scene["round"]:
+        return fail(table, "Сейчас действие у брода недоступно. Сверьте раунд и исход.")
     what = action.get("do")
+    hid, hero = my_hero(table, seat)
+    token = hero_token(table, hid)
+    if not token or not hero["hp"]:
+        return fail(table, "Действовать может стоящий герой на поле.")
+    if what in ("hold", "song") and token["zone"] != 3 or what == "tongue" and token["zone"] != 4:
+        return fail(table, "Коромысло и песня доступны в звоннице (3), язык — на отмели (4).")
+    if what == "shield":
+        target = next((t for t in scene["tokens"] if t["id"] == action.get("target", token["id"])
+                       and t["kind"] == "hero" and t["zone"] == token["zone"] and t["hp"] > 0), None)
+        if not target:
+            return fail(table, "Выберите себя или стоящего союзника в своей зоне.")
+        target["shield"] = max(target["shield"], 2)
+        scene.setdefault("bellShields", []).append(target["ref"])
+        mirror(table)
+        log(table, seat, "scene", f"{target['name']} получает щит 2 до следующего хода защитника.")
+        return {"ok": True}
+    if what == "raise":
+        target = next((t for t in scene["tokens"] if t["id"] == action.get("target")
+                       and t["kind"] == "hero" and t["zone"] == token["zone"] and not t["hp"]), None)
+        if not target or target["ref"] in scene.get("bellRaised", []):
+            return fail(table, "Нужен павший союзник рядом, которого ещё не поднимали действием в этой сцене.")
+        scene.setdefault("bellRaised", []).append(target["ref"])
+        target["hp"] = 2
+        mirror(table)
+        log(table, seat, "scene", f"{token['name']} поднимает героя {target['name']}: 2 ОЗ.")
+        return {"ok": True}
+    roll = {key: action[key] for key in ("mode","spark","source","faces","dice") if key in action}
     if what == "hold":
-        result = do_roll(table, seat, {"kind": "check", "stat": action.get("stat", "might"), "dc": 7, "label": "Коромысло", "dice": action.get("dice")})
+        stat = action.get("stat", "might")
+        if stat not in ("might", "will"):
+            return fail(table, "Для коромысла нужна Мощь или Воля.")
+        result = do_roll(table, seat, {**roll, "kind":"check", "stat":stat, "combat":True, "dc":7, "label":"Коромысло"})
         if not result.get("ok"):
             return result
         if table["log"][-1]["dice"]["result"] == "успех":
@@ -1800,21 +1847,19 @@ def bell(table, seat, action):
                 log(table, seat, "gm", "Верёвка слушается. Переправа ещё помнит берег. Можно закрывать брод победой.")
         return {"ok": True}
     if what == "tongue":
-        alive = [t for t in scene["tokens"] if t["kind"] == "foe" and t["hp"] > 0 and t["zone"] == 4]
+        alive = [t for t in scene["tokens"] if t["kind"] == "foe" and t["hp"] > 0]
         if alive:
-            return fail(table, "На отмели ещё стоит стража.")
+            return fail(table, "Гончие ещё на ногах. Сначала одолейте их.")
         scene["goal"] = "язык"
         log(table, seat, "gm", "Язык колокола снят. В меди остаётся улика. Можно закрывать брод победой.")
         return {"ok": True}
     if what == "song":
-        result = do_roll(table, seat, {"kind": "check", "stat": "will", "dc": 8, "label": "Песня Лады", "dice": action.get("dice")})
+        if "I19" not in hero["potions"]:
+            return fail(table, "Для песни нужен свой красный отвар I19.")
+        result = do_roll(table, seat, {**roll, "kind":"check", "stat":"will", "combat":True, "dc":8, "label":"Песня Лады"})
         if not result.get("ok"):
             return result
         if table["log"][-1]["dice"]["result"] != "успех":
-            return {"ok": True}
-        hid, hero = my_hero(table, seat)
-        if "I19" not in hero["potions"]:
-            log(table, seat, "scene", "Воля хватило, но своего красного отвара уже нет. Песня не оплачена.")
             return {"ok": True}
         hero["potions"].remove("I19")
         scene["goal"] = "песня"
@@ -1836,6 +1881,23 @@ def next_round(table, seat):
     scene = table["scene"]
     if not scene:
         return fail(table, "Раунды считают на поле.")
+    if scene.get("storyBell"):
+        if scene["round"] > 3 or scene.get("goal"):
+            return fail(table, "Сначала запишите исход переправы.")
+        if scene.get("enemyRound") != scene["round"]:
+            return fail(table, "Сначала разыграйте ход гончих.")
+        for hid in scene.pop("bellShields", []):
+            table["heroes"][hid]["shield"] = 0
+            token = hero_token(table, hid)
+            if token:
+                token["shield"] = 0
+        for hid, applied in list(scene.get("bellBreach", {}).items()):
+            if applied < scene["round"]:
+                conditions = table["heroes"][hid]["conditions"]
+                if "надлом" in conditions:
+                    conditions.remove("надлом")
+                del scene["bellBreach"][hid]
+        scene.pop("bellTurns", None)
     scene["round"] += 1
     for token in scene["tokens"]:
         if token.get("waiting") and scene["round"] >= 2:
@@ -1845,7 +1907,8 @@ def next_round(table, seat):
     if scene["id"] == "bell" and scene["round"] <= len(scene["words"]):
         words = f" Забытое слово: {scene['words'][scene['round']-1]}."
     if scene["id"] == "bell" and scene["round"] > 3 and not scene.get("goal"):
-        words += " Третий раунд прошёл без результата. Если стол так решил, мост пустеет: +1 прилив и медная крошка."
+        log(table, seat, "scene", "Третий удар. Цель не выполнена. Запишите, что мост опустел.")
+        return {"ok": True}
     log(table, seat, "scene", f"Раунд {scene['round']}.{words}")
     return {"ok": True}
 

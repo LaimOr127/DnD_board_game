@@ -136,6 +136,7 @@ def echoes(table, s):
 def visible(table):
     s = table.get("story") or initial(table)
     party, page = table["party"], s["page"]
+    paper_choices = []
     if page == "epilogue":
         title, _, passage = E.endings[s["ending"]]
         text = passage + " " + s["postscript"]
@@ -157,10 +158,26 @@ def visible(table):
                 prompt += " Можно устроить привал за припас или отработать ночлег."
         if page == "council" and party["suspicion"] >= 3:
             choices = [choice for choice in choices if choice[0] == "trial"]
-        if page == "bell" and (table["scene"] or {}).get("goal") != "песня":
-            singers = [hid for hid in E.claimed(table) if "I19" in table["heroes"][hid]["potions"]]
-            song_choices = [("song-" + hid, f"Спели с Ладой · флакон отдаёт {E.HERO_BY[hid]['name']}") for hid in singers]
-            choices = choices[:1] + song_choices + choices[2:]
+        if page == "bell":
+            field = table["scene"] or {}
+            by_goal = {"коромысло":"hold", "песня":"song", "язык":"tongue"}
+            goal = by_goal.get(field.get("goal"))
+            resolved = choices
+            if goal:
+                choices = [option for option in resolved if option[0] == goal]
+                prompt = "Цель выполнена. Создатель стола записывает исход. Следующих ходов у брода уже нет."
+            else:
+                expired = field.get("round", 1) > 3
+                fallen = bool(field and E.claimed(table) and not E.living_heroes(field))
+                choices = [resolved[-1]] if expired else []
+                if fallen:
+                    choices = [("empty", "Отряд пал · закрыть первую главу")]
+                if not (expired or fallen):
+                    singers = [hid for hid in E.claimed(table) if "I19" in table["heroes"][hid]["potions"]]
+                    paper_choices = [resolved[0], *[
+                        ("song-" + hid, f"Спели с Ладой · флакон отдаёт {E.HERO_BY[hid]['name']}")
+                        for hid in singers], *resolved[2:]]
+                prompt += f" Коромысло: {field.get('holds',0)} из 2. Действия доступны на листе стычки."
         if page == "heart" and table["scene"] and table["scene"].get("keeperBound"):
             choices = [("altar", "На поле подняли первый набор имён")] + choices
         if page == "heart" and "cancelKeeperSignal" in party["flags"]:
@@ -184,6 +201,7 @@ def visible(table):
         "meeting": roadside.current(table, s), "roadJournal": reports, "news": news,
         "promises": promises.view(table, s), "verdictReceipt": s.get("verdictReceipt"),
         "milestones": s.get("milestones", []), "approaches": s.get("approaches", []),
+        "paperChoices": [{"id": k, "label": v} for k,v in paper_choices],
     }
 
 
@@ -216,6 +234,8 @@ def begin_battle(table, seat, page):
         return result
     scene = table["scene"]
     tier = E.tier_of(party["level"])
+    if page == "prologue":
+        scene["storyBell"] = True
     if kind == "siege":
         wave = E.pick_mob(5, tier, 0, False)
         count = E.MEET["simple"][min(6, E.party_n(table))]
@@ -292,7 +312,8 @@ def choose(table, seat, action):
     choice = action.get("choice")
     if seat not in table["seats"] or action.get("scene") != current["id"]:
         return E.fail(table, "Эта страница уже перевёрнута. Сверьтесь с общей сценой.")
-    options = {opt["id"]: opt["label"] for opt in current["choices"]}
+    eligible = current["paperChoices"] if action.get("paper") is True else current["choices"]
+    options = {opt["id"]: opt["label"] for opt in eligible}
     if not isinstance(choice, str) or choice not in options:
         return E.fail(table, "Этот выбор сейчас недоступен.")
     s = table.setdefault("story", initial(table))
@@ -315,6 +336,9 @@ def choose(table, seat, action):
         result = begin_battle(table, seat, page)
         if not result["ok"]:
             return result
+        if page == "prologue" and not party["dealt"]:
+            E.deal(table, seat)
+            table["fundedSeats"] = [s["id"] for s in table["seats"].values() if s["heroId"]]
         if page == "retry":
             if party["silver"] >= 2:
                 party["silver"] -= 2
@@ -328,6 +352,9 @@ def choose(table, seat, action):
             choice = "song"
         finish_field(table, seat, choice != "empty", "bell")
         if choice == "empty":
+            for hid in E.claimed(table):
+                hero = table["heroes"][hid]
+                hero["hp"] = max(hero["hp"], (hero["maxHp"] + 1) // 2)
             E.add_tide(table, 1)
             clue(party, "медная крошка")
         else:

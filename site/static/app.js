@@ -2,7 +2,7 @@ import {mountSaves} from "./saves.js";
 import {mountFreeplay} from "./freeplay.js";
 import {mountFieldGuide} from "./field-guide.js";
 import {mountCardCatalog} from "./card-catalog.js";
-import {mountMapTurn, adjacentZones, figureName} from "./map-turn.js";
+import {mountMapTurn, adjacentZones, figureName} from "./map-turn.js?v=prologue";
 const $ = (id) => document.getElementById(id);
 const dlg = $("dialog"),
   body = $("dialogBody");
@@ -218,10 +218,15 @@ async function command(action, next) {
       "reward",
       "travel",
       "roll",
+      "bell",
       "meeting",
       "approach",
     ];
-    const cmd = guarded.includes(action.op) ? { rev: state.rev, ...action } : action;
+    const bridgeHero = state.scene?.storyBell && ["bell","roll"].includes(action.op)
+      && !["road","oracle"].includes(action.kind) && state.scene.tokens.find(t=>t.kind==="hero" && t.ref===mine());
+    const cmd = bridgeHero ? {fromZone:bridgeHero.zone, round:state.scene.round, ...action}
+      : guarded.includes(action.op) && action.fromZone === undefined ? {rev:state.rev,...action}
+      : action;
     const result = await request("/api/action", { method: "POST", body: cmd });
     if (roomEpoch !== epoch || result.state.code !== sourceCode) return;
     await accept(result.state);
@@ -528,7 +533,7 @@ function renderLibrary(tab) {
   search.required = false;
   search.placeholder = "Например, искра или урон…";
   const list = el("div", null, "rule-body");
-  const printEdition = "/rules.pdf?v=33";
+  const printEdition = "/rules.pdf?v=prologue";
   const lessons = new Map([[1,"H07"],[2,"H01"],[3,"H16"],[22,"H04"],[23,"H16"],[24,"H14"]]);
   const draw = (openedPage) => {
     const q = search.value.toLowerCase().trim();
@@ -665,7 +670,9 @@ function renderGame() {
   $("tableTitle").textContent = st.title;
   $("invite").textContent = "Пригласить друзей";
   $("mapTitle").textContent = s ? s.title : "Карта десяти королевств";
-  $("position").textContent = s ? "Раунд " + s.round : "День " + p.day + " · " + realm().village;
+  $("position").textContent = s
+    ? (s.storyBell && s.round > 3 ? "После третьего удара" : "Раунд " + s.round)
+    : "День " + p.day + " · " + realm().village;
   void updateBoard();
   mapTurn.controls($("mapTurns"));
   const loc = $("locations");
@@ -709,6 +716,8 @@ function renderGame() {
           box(
             el("strong", c.name),
             el("p", h.hp + "/" + h.maxHp + " ОЗ · " + h.sparks + "/" + h.maxSparks + " искр"),
+            s?.storyBell && h.shield ? el("p","Щит: "+h.shield,"small") : null,
+            s?.storyBell && h.conditions.length ? el("p",h.conditions.join(", "),"small") : null,
           ),
         )
       : el("h2", "Выберите героя"),
@@ -743,6 +752,18 @@ function renderGame() {
       state.host ? action(ch.label, { op: "story", scene: st.id, choice: ch.id }) : el("p", ch.label),
     ),
   );
+  if (st.id === "bell" && s && playing()) {
+    const panel = bellPanel(s);
+    if (panel.childElementCount) $("choices").prepend(panel);
+    if (state.host && st.paperChoices?.length) {
+      $("choices").append(details("Записать исход с бумажного поля",
+        el("p","Откройте, если цель и раунды уже разыграны на бумаге. Сверьте ОЗ героев и фигур перед записью."),
+        ...st.paperChoices.map(ch => btn(ch.label, () => {
+          modal("Подтвердить итог с бумажного поля",el("p",ch.label),
+            action("Записать итог", {op:"story", scene:st.id, choice:ch.id, paper:true}, () => dlg.close(),"primary"));
+        }))));
+    }
+  }
   if (!state.host && st.choices.length) $("choices").append(el("p", hostTip, "small muted"));
   $("choices").append(
     btn(
@@ -761,6 +782,34 @@ function renderGame() {
   drawPromises();
   controls();
   $("lastLog").replaceChildren(...state.log.slice(-2).map(logLine));
+}
+
+function bellPanel(scene) {
+  const panel = el("div",null,"stack");
+  const token = scene.tokens.find(t=>t.kind==="hero" && t.ref===mine() && t.hp>0);
+  if (!token || scene.goal || scene.round > 3 || scene.enemyRound === scene.round) return panel;
+  if (scene.storyBell && scene.bellTurns?.[token.ref]?.action)
+    return add(panel,el("p","Действие этого раунда потрачено. Если шаг ещё свободен, переместитесь по карте.","small"));
+  if (token.zone === 3) {
+    panel.append(btn("Удержать коромысло · " + scene.holds + " из 2",()=>diceDialog(null,"hold")));
+    if (state.heroes[token.ref].potions.includes("I19"))
+      panel.append(btn("Спеть с Ладой · отдать отвар при успехе",()=>diceDialog(null,"song")));
+  } else {
+    panel.append(el("p", "Коромысло и песня — в звоннице (зона 3).", "small"));
+  }
+  if (!scene.tokens.some(t=>t.kind==="foe" && t.hp>0)) {
+    if (token.zone === 4) panel.append(action("Снять медный язык", {op:"bell",do:"tongue"},undefined,"primary"));
+    else panel.append(el("p","Стража побеждена. На отмели (зона 4) можно снять язык.","small"));
+  }
+  const targets = scene.tokens.filter(t=>t.kind==="hero" && t.hp>0 && t.zone===token.zone);
+  const target = options(targets.map(t=>[t.id,t.name]));
+  target.value = token.id;
+  panel.append(details("Поставить заслон · 1 действие",field("Кому дать щит 2",target),
+    btn("Поставить щит 2",()=>command({op:"bell",do:"shield",target:target.value}))));
+  for (const ally of scene.tokens.filter(t=>t.kind==="hero" && !t.hp && t.zone===token.zone && !scene.bellRaised?.includes(t.ref))) {
+    panel.append(action("Поднять союзника · " + ally.name, {op:"bell",do:"raise",target:ally.id}));
+  }
+  return panel;
 }
 
 function renderSession() {
@@ -1075,7 +1124,7 @@ function controls() {
     return;
   }
   const list = el("div", null, "stack");
-  if (state.you.heroId && s) {
+  if (state.you.heroId && s && !s.storyBell) {
     const t = s.tokens.find((t) => t.kind === "hero" && t.ref === mine());
     if (t) {
       const next = adjacentZones(s,t.zone);
@@ -1138,18 +1187,22 @@ function controls() {
         ),
       );
     } else {
-      list.append(action("Ход противников", { op: "enemies" }), action("Следующий раунд", { op: "round" }));
+      if (!s.storyBell) {
+        list.append(action("Ход противников", {op:"enemies"}), action("Следующий раунд", {op:"round"}));
+      } else if (!s.goal && s.round <= 3 && s.tokens.some(t=>t.kind==="hero" && t.hp>0)) {
+        list.append(s.enemyRound === s.round ?
+          action(s.round === 3 ? "Завершить третий раунд" : "Следующий раунд",{op:"round"}) :
+          action("Ход противников",{op:"enemies"}));
+      }
       const choose = options([
         ["simple", "Простая"],
         ["normal", "Обычная"],
         ["hard", "Тяжёлая"],
         ["boss", "Босс"],
       ]);
-      const manual = details(
-        "Фигуры и исход на столе",
-        field("Столкновение", choose),
-        btn("Выставить противника", () => command({ op: "spawn", meet: choose.value })),
-      );
+      const manual = details("Фигуры и исход на столе");
+      if (!s.storyBell) manual.append(field("Столкновение", choose),
+        btn("Выставить противника", () => command({ op: "spawn", meet: choose.value })));
       const enemies = s.tokens.filter((t) => ["foe", "boss"].includes(t.kind));
       if (enemies.length) {
         const foe = options(enemies.map((t) => [t.id, figureName(t) + " · " + t.hp + " ОЗ"]));
@@ -1210,14 +1263,16 @@ function controls() {
   area.replaceChildren(list);
 }
 
-function diceDialog(targetId) {
+function diceDialog(targetId, bell) {
+  const scene = state.scene;
+  const actor = scene?.storyBell && scene.tokens.find(t=>t.kind==="hero" && t.ref===mine());
   const kind = options([
     ["check", "Проверка"],
     ["attack", "Атака"],
     ["road", "Дорожное событие"],
     ["oracle", "Вопрос «да / нет»"],
   ]);
-  const stat = options(Object.entries(stats));
+  const stat = options(Object.entries(stats).filter(([key])=>!bell || (bell==="hold" ? key!=="agility" : key==="will")));
   const dc = options([
     [7, "7 · обычная"],
     [9, "9 · трудная"],
@@ -1267,17 +1322,19 @@ function diceDialog(targetId) {
     const single = ["road", "oracle"].includes(kind.value);
     statL.hidden = kind.value !== "check";
     targetL.hidden = kind.value !== "attack";
-    dcL.hidden = single || (kind.value === "attack" && !!target.value);
+    dcL.hidden = Boolean(bell) || single || (kind.value === "attack" && !!target.value);
     customL.hidden = dcL.hidden || dc.value !== "custom";
     modeL.hidden = single;
     sparkL.hidden = single;
     faceL.hidden = source.value !== "table";
-    const adv = mine() && state.heroes[mine()].advantageNext;
+    const activeTarget = kind.value === "attack" && state.scene?.tokens.find(t=>t.id===target.value);
+    const firstHound = activeTarget?.ref === "M001" && !activeTarget.attacked;
+    const adv = (mine() && state.heroes[mine()].advantageNext) || firstHound;
     const count = single ? 1 : (adv ? mode.value === "disadvantage" : mode.value === "flat") ? 2 : 3;
     hint.textContent = single
       ? "Один d6. Значение определяет событие или ответ оракула."
       : (count === 2 ? "Два d6. Сложите обе грани." : "Три d6. Стол сам оставит нужные две грани.") +
-        (adv ? " На листе отмечено преимущество." : "");
+        (firstHound ? " Первая атака по этой гончей даёт преимущество." : adv ? " На листе отмечено преимущество." : "");
     faces.placeholder = count === 1 ? "Например, 4…" : count === 2 ? "Например, 3 5…" : "Например, 2 3 5…";
   }
   for (const node of [kind, mode, dc, source, target]) node.onchange = sync;
@@ -1288,12 +1345,13 @@ function diceDialog(targetId) {
   const f = makeForm(
     async () => {
       const single = ["road", "oracle"].includes(kind.value);
-      const cmd = { op: "roll", kind: kind.value, source: source.value };
+      const cmd = bell ? {op:"bell",do:bell,source:source.value} : {op:"roll",kind:kind.value,source:source.value};
       if (!single) {
+        if (actor) Object.assign(cmd,{fromZone:actor.zone,round:scene.round});
         cmd.stat = stat.value;
         cmd.mode = mode.value;
         cmd.spark = spark.checked;
-        cmd.dc = Number(dc.value === "custom" ? custom.value : dc.value);
+        if (!bell) cmd.dc = Number(dc.value === "custom" ? custom.value : dc.value);
         if (kind.value === "attack" && target.value) cmd.target = target.value;
       }
       if (source.value === "table") {
@@ -1304,16 +1362,21 @@ function diceDialog(targetId) {
         if (!cmd.faces.every((n) => Number.isInteger(n) && n >= 1 && n <= 6))
           throw new Error("На каждой кости должно быть от 1 до 6 точек.");
       }
-      await command(cmd, () => {
-        const row = state.log.filter((r) => r.seat === state.you.id && r.dice).at(-1);
-        if (!row) return;
-        out.replaceChildren(diceResult(row));
-        faces.value = "";
-        spark.checked = false;
+      try {
+        await command(cmd, () => {
+          const row = state.log.filter((r) => r.seat === state.you.id && r.dice).at(-1);
+          if (!row) return;
+          out.replaceChildren(diceResult(row));
+          faces.value = "";
+          spark.checked = false;
+          sync();
+        });
+      } catch (error) {
         sync();
-      });
+        throw error;
+      }
     },
-    add(el("div", null, "cols"), field("Что бросаем", kind), field("Кубики", source)),
+    add(el("div", null, "cols"), bell ? el("p",bell==="hold" ? "Мощь или Воля против 7." : "Воля против 8. При успехе отдайте свой красный отвар.") : field("Что бросаем", kind), field("Кубики", source)),
     add(el("div", null, "cols"), statL, targetL, dcL, customL, modeL),
     sparkL,
     hint,
@@ -1321,7 +1384,7 @@ function diceDialog(targetId) {
     submit("Записать бросок"),
     out,
   );
-  modal("Бросок кубиков", f);
+  modal(bell === "hold" ? "Удержать коромысло" : bell === "song" ? "Спеть с Ладой" : "Бросок кубиков", f);
   const last = state.log.filter((r) => r.dice).at(-1);
   if (last) out.append(diceResult(last));
 }
