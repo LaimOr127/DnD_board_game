@@ -528,11 +528,13 @@ function renderLibrary(tab) {
   search.required = false;
   search.placeholder = "Например, искра или урон…";
   const list = el("div", null, "rule-body");
+  const printEdition = "/rules.pdf?v=33";
   const lessons = new Map([[1,"H07"],[2,"H01"],[3,"H16"],[22,"H04"],[23,"H16"],[24,"H14"]]);
   const draw = (openedPage) => {
     const q = search.value.toLowerCase().trim();
     list.replaceChildren();
-    for (const [n,rule] of book.rules.entries()) {
+    const pages = Array.from(book.rules.entries());
+    for (const [n,rule] of [...pages.slice(24), ...pages.slice(0,24)]) {
       if (q && !(rule.title + " " + rule.body).toLowerCase().includes(q)) continue;
       const d = details(rule.title);
       const page = n + 1;
@@ -544,21 +546,31 @@ function renderLibrary(tab) {
         d.append(lessonArt);
       }
       for (const line of rule.body.split("\n").filter(Boolean)) {
+        const illustration = line.match(/^!\[([^\]]+)\]\(([HIMB]\d{2,3})\)$/);
+        if (illustration) {
+          const [, caption, ref] = illustration;
+          const folder = ref.startsWith("H") ? "portraits" : "cards";
+          d.append(add(el("figure",null,"rule-illustration"),
+            img("/static/assets/" + folder + "/" + ref + ".webp", ""),
+            el("figcaption",caption)));
+          continue;
+        }
         d.append(line.startsWith("## ") ? el("h3", line.slice(3)) : el("p", line));
       }
-      const printPage = link("В печатной книге · стр. " + page, "/rules.pdf#page=" + page);
+      const printPage = link("В печатной книге · стр. " + page, printEdition + "#page=" + page);
       printPage.target = "_blank"; printPage.rel = "noopener"; d.append(printPage);
       list.append(d);
     }
     if (!list.children.length) list.append(el("p", "Совпадений нет. Попробуйте другое слово."));
   };
   search.oninput = () => draw();
-  draw();
-  const pdf = link("Открыть печатные правила (PDF)", "/rules.pdf");
+  draw(25);
+  const pdf = link("Печатное руководство · с чего начать (PDF)", printEdition + "#page=25");
   pdf.target = "_blank";
   pdf.rel = "noopener";
   const shortcuts = el("div", null, "field-nav");
-  for (const [page,title] of [[1,"Сыграть первый ход"],[22,"Когда что можно"],[23,"Пример стычки"],[24,"Указатель правил"]]) {
+  for (const [page,title] of [[25,"Что достать"],[26,"Подготовить игру"],[27,"Сыграть пролог"],[29,"Бой с боссом"],
+    [30,"Поражение"],[31,"Разрешить спор"],[32,"Играть с сайтом"],[23,"Пример стычки"],[24,"Указатель правил"]]) {
     shortcuts.append(btn(title, () => {
       search.value = ""; draw(page);
       const summary = $("rule-page-" + page)?.querySelector("summary");
@@ -570,7 +582,7 @@ function renderLibrary(tab) {
     el("h1", "Правила"),
     el(
       "p",
-      "Проверка — 2d6 + характеристика + ступень − 1. При преимуществе оставьте две лучшие из трёх костей, при помехе — две худшие.",
+      "Для первой встречи пройдите разделы о комплекте, подготовке и переправе. Остальные разделы открывайте по ходу игры.",
     ),
     shortcuts, pdf,
     field("Найти в книге", search),

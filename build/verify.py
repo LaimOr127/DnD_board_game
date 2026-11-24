@@ -56,7 +56,7 @@ def main():
     solid = manifold3d.Manifold(manifold3d.Mesh(die.vertices.astype('float32'), die.faces.astype('uint32')))
     assert die.is_volume and len(solid.decompose())==1 and np.allclose(die.extents,[16,16,16])
     assert np.linalg.norm(die.center_mass-[0,0,8]) < 0.01
-    expected=[7,24,55,13,2,34,12,5,8];pdfs=sorted(OUT.glob('*.pdf'));assert len(pdfs)==9;pagecounts={};tmp=ROOT/'qa-temp';tmp.mkdir(exist_ok=True);allthumb=[]
+    expected=[7,33,55,13,2,34,12,5,8];pdfs=sorted(OUT.glob('*.pdf'));assert len(pdfs)==9;pagecounts={};tmp=ROOT/'qa-temp';tmp.mkdir(exist_ok=True);allthumb=[]
     for ix,p in enumerate(pdfs):
         d=pymupdf.open(p);assert len(d)==expected[ix],(p,len(d));pagecounts[p.name]=len(d);alltext=''
         for pi,pg in enumerate(d):
@@ -70,14 +70,15 @@ def main():
                 assert all(hidden.casefold() not in travel_pages for hidden in (region[8],region[11])), region[0]
         if ix in [0,1,2]:assert 'море' in alltext.casefold() and '□' not in alltext
         if ix == 1:
-            from printkit import parse_book
+            from printkit import parse_book, RULE_BOOK
             from maps import fields
-            chapters = parse_book() + parse_book('promises.md')
+            chapters = [page for filename in RULE_BOOK for page in parse_book(filename)]
             assert '\x00' not in alltext
             assert [title for _,title,_ in d.get_toc()] == [title for title,_ in chapters]
             for pg,(title,blocks) in zip(d,chapters):
                 text = ' '.join(pg.get_text().split())
                 assert all(' '.join(body.split()) in text for _,body in blocks), title
+                assert len(pg.get_images()) >= sum(kind.startswith('art-') for kind,_ in blocks), title
             assert "Слово своего героя" in d[18].get_text()
             assert "Как оставить стол до следующей встречи" in d[19].get_text()
             free_table = ' '.join(d[20].get_text().split())

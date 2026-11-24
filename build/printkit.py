@@ -95,10 +95,16 @@ def decks():
     from chronicle_cards import build_chronicles
     build_chronicles()
 
+RULE_BOOK = ('rules.md', 'promises.md', 'first-session.md')
+
+
 def parse_book(filename='rules.md'):
     pages=[]
     for line in (ROOT/'design'/filename).read_text(encoding='utf8').splitlines():
         if line.startswith('# '):pages.append([line[2:],[]]);continue
+        if match := re.fullmatch(r'!\[([^\]]+)\]\(([HIMB]\d{2,3})\)',line):
+            pages[-1][1].append(('art-'+match[2],match[1]))
+            continue
         if line:pages[-1][1].append(('h' if line.startswith('## ') else 'p',line.removeprefix('## ')))
     return pages
 
@@ -175,10 +181,26 @@ def bookpage(c,title,blocks,num,series,over='',art=None,lesson=None):
         size=p/10;lay=[];total=0
         for typ,body in blocks:
             if not body:continue
+            if typ.startswith('art-'):
+                step=size*1.45
+                lines=wrap(body,w-166,'G',size)
+                height=max(60,13+len(lines)*step)
+                total+=height+8;lay.append((typ,lines,step,0,height+8))
+                continue
             ll=wrap(body,w-90,'SB' if typ=='h' else 'G',size+1 if typ=='h' else size);step=(size+4) if typ=='h' else (size*1.45);before=7 if typ=='h' else 0;after=4 if typ=='h' else 8;total+=before+len(ll)*step+after;lay.append((typ,ll,step,before,after))
         if total<=top-48:break
     assert total<=top-48,(title,total,top); yy=top
     for typ,ll,step,before,after in lay:
+        if typ.startswith('art-'):
+            portrait=art_for(typ[4:])
+            scale=min(58/portrait.width,50/portrait.height)
+            pw,ph=portrait.width*scale,portrait.height*scale
+            rect(c,43,yy-after+15,w-86,after-6,'#e7ebdf')
+            book_image(c,portrait,48+(58-pw)/2,yy-ph+3,pw,ph)
+            for i,line in enumerate(ll):
+                txt(c,116,yy-10-i*step,line,size,'G',INK)
+            yy-=after
+            continue
         yy-=before
         for l in ll:txt(c,44,yy,l,size+1 if typ=='h' else size,'SB' if typ=='h' else 'G',mix(GOLD,INK,.37) if typ=='h' else INK);yy-=step
         yy-=after
@@ -189,7 +211,7 @@ def bookpage(c,title,blocks,num,series,over='',art=None,lesson=None):
 
 def rules():
     c=Canvas(str(OUT/'01 Правила.pdf'),pagesize=A4);c.setTitle('Море имён · Правила');
-    sections = parse_book() + parse_book('promises.md')
+    sections = [page for filename in RULE_BOOK for page in parse_book(filename)]
     icons = {4:'heart',5:'coin',6:'helm',7:'portal',8:'eye',9:'lantern',10:'horn',11:'crown',12:'book'}
     for num,(title,blocks) in enumerate(sections,1):
         if num <= 3 or num >= 22:

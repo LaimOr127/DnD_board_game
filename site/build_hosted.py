@@ -54,7 +54,8 @@ def main(output):
         for path in ("site/engine.py", "site/story.py", "site/roadside.py", "site/promises.py", "site/personal.py",
                      "site/personal_quests.py", "site/checkpoints.py", "site/freeplay.py", "site/service.py", "site/online_room.py", "build/foes.py",
                      "build/party.py", "build/world.py", "build/edicts.py", "build/extras.py",
-                     "build/field_guide.py", "build/card_lore.py", "design/rules.md", "design/promises.md"):
+                     "build/field_guide.py", "build/card_lore.py", "design/rules.md", "design/promises.md",
+                     "design/first-session.md"):
             bundle.write(ROOT / path, path)
 
     figures = output / "figures"
