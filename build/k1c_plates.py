@@ -5,7 +5,6 @@ from xml.etree import ElementTree as ET
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 from PIL import Image, ImageDraw
-from manifold3d import Manifold, Mesh
 import numpy as np
 import trimesh
 
@@ -50,11 +49,6 @@ def geometry(parts):
     for part in dict.fromkeys(parts):
         group, name, scale = part
         mesh = trimesh.load_mesh(MODELS / group / f'{name}.stl')
-        if group == ENEMIES and name in {'M001', 'M002', 'M151'}:
-            # The last ear-tip layers leave gaps at a 0.4 mm nozzle width.
-            solid = Manifold(Mesh(mesh.vertices.astype('float32'), mesh.faces.astype('uint32')))
-            trimmed = solid.trim_by_plane((0, 0, -1), -16.2).to_mesh()
-            mesh = trimesh.Trimesh(trimmed.vert_properties[:, :3], trimmed.tri_verts)
         if not mesh.is_volume or len(mesh.split(only_watertight=False)) != 1:
             raise ValueError(f'Expected one closed solid: {group}/{name}')
         mesh.apply_scale(scale)

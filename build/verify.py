@@ -1,4 +1,5 @@
 import sys,json,random,statistics,math,hashlib
+from collections import Counter
 from pathlib import Path
 import numpy as np,trimesh,pymupdf,manifold3d
 from PIL import Image,ImageDraw,ImageOps
@@ -48,10 +49,29 @@ def main():
         for tier in range(1,6):assert len([b for b in BOSSES if b['area']==a and b['t']==tier])==2 and len([b for b in MOBS if b['area']==a and b['t']==tier])==6
     spatial={p.stem for p in (OUT/'3D').rglob('*.stl')};images={p.stem for p in (OUT/'Карточки PNG').rglob('*.png')};assert set(cards)==images and set(cards)<=spatial
     faults=[];geom=list((OUT/'3D').rglob('*.stl'));assert len(geom)==928;assert all((OUT/'3D'/group/(key+'.stl')).exists() for key in cards if key[0] in 'HMB' for group in [{'H':'объёмные герои','M':'объёмные существа','B':'объёмные боссы'}[key[0]]])
+    sculpt_signatures = set()
+    figure_heights = []
     for p in geom:
         mesh=trimesh.load_mesh(p)
         if not (mesh.is_watertight and mesh.is_winding_consistent and mesh.volume>0 and np.isfinite(mesh.vertices).all()):faults.append(p.parent.name+'/'+p.name)
+        if p.parent.name.startswith('объёмные '):
+            assert abs(mesh.bounds[0,2]) < 1e-5 and mesh.bounds[1,2] <= 50, p
+            floor = mesh.vertices[np.abs(mesh.vertices[:,2]) < .05]
+            assert len(floor) >= 48 and np.ptp(floor[:, :2],axis=0).min() >= 23, p
+            upper = np.unique(mesh.vertices[mesh.vertices[:,2] > 5].round(3),axis=0)
+            digest = hashlib.sha256(upper.tobytes()).digest()
+            assert digest not in sculpt_signatures, p
+            sculpt_signatures.add(digest)
+            figure_heights.append(mesh.extents[2])
     if faults:raise AssertionError(('STL',len(faults),faults))
+    assert len(sculpt_signatures)==418
+    from figure_plates import COLLECTION, batches
+    catalog, plate_groups = batches()
+    assert {p.stem for p in COLLECTION.glob('*.3mf')} == {name for name,_,_ in plate_groups}
+    from csv import DictReader
+    with (COLLECTION/'Указатель.csv').open(encoding='utf-8-sig',newline='') as f:
+        indexed = list(DictReader(f,delimiter=';'))
+    assert Counter(row['Код'] for row in indexed if row['Файл 3MF'] != '00-sample.3mf') == Counter(catalog.keys())
     die = trimesh.load_mesh(ROOT/'Кубики'/'Береговой d6 — 16 мм.stl')
     solid = manifold3d.Manifold(manifold3d.Mesh(die.vertices.astype('float32'), die.faces.astype('uint32')))
     assert die.is_volume and len(solid.decompose())==1 and np.allclose(die.extents,[16,16,16])
@@ -145,5 +165,8 @@ def main():
     simulations=[sim(n,t,n*971+t) for n in range(2,7) for t in [1,3,5]]
     res={'контент':{'герои':18,'обычные':300,'боссы':100,'вещи':40,'королевства':10,'народы':10,'полевые_листы':len(GUIDES),'старосты':len(heads),'жители_на_полевых_листах':len(names),'регионы_связны':True,'финалы':8,'местные_контракты':30,'главы':5,'общие_поручения_Неры':2,'личные_поручения':len(QUESTS),'личные_решения':sum(len(q.paths) for q in QUESTS.values())},'проверка':{'файлы_STL':len(geom),'отдельный_кубик_d6_STL':1,'открытые_рёбра_или_плохой_обход':len(faults),'карточки_PNG':len(images),'страницы_PDF':pagecounts,'все_страницы_отрисованы':True},'модель':'Условный неподвижный босс; все бьют штатным оружием по сильной характеристике, фокус врага по раненому. Без рун, лечения, брони, критической искры, особенностей, сигналов, движения и переговоров. Проверяет только базовую арифметику боя. Это не плейтест.','моделирование':simulations}
     res['проверка']['карточки_с_историей'] = validate_chronicles()
+    res['проверка']['объёмные_фигурки'] = {'с_различной_геометрией_выше_базы':len(sculpt_signatures),
+                                      'мин_высота_мм':round(min(figure_heights),2),'макс_высота_мм':round(max(figure_heights),2),
+                                      'пластины_серии_K1C':len(plate_groups)}
     (OUT/'Проверка.json').write_text(json.dumps(res,ensure_ascii=False,indent=2),encoding='utf8');print(json.dumps(res,ensure_ascii=False,indent=1))
 if __name__=='__main__':main()
