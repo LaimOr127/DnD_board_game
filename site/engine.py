@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "build"))
 from foes import families, foes  # noqa: E402
 from extras import local as local_cases  # noqa: E402
 from field_guide import GUIDES  # noqa: E402
+from card_lore import card_lore  # noqa: E402
 from party import heroes as HERO_ROWS  # noqa: E402
 from party import items as ITEM_ROWS  # noqa: E402
 from party import schools  # noqa: E402
@@ -251,6 +252,7 @@ def hero_card(i, row):
         "technique": row[4],
         "talent": row[5],
         "story": row[6],
+        "profile": card_lore(hid),
         "bond": row[7],
         "fork": {"prompt": prompt, "a": a_label, "b": b_label},
     }
@@ -264,13 +266,13 @@ def bestiary():
     mobs = [{
         "id": m["id"], "name": m["name"], "area": m["area"], "t": m["t"], "hp": m["hp"],
         "defense": m["defense"], "dmg": m["dmg"], "reach": m["reach"],
-        "ability": m["ability"], "trait": m["trait"], "loss": m["loss"],
+        "ability": m["ability"], "trait": m["trait"], "loss": m["loss"], "profile": card_lore(m["id"]),
     } for m in MOBS]
     bosses = [{
         "id": b["id"], "name": b["name"], "area": b["area"], "t": b["t"], "hp": b["hp"],
         "defense": b["defense"], "dmg": b["dmg"], "reach": b["reach"],
         "decree": b["decree"], "ability": b["ability"], "omen": b["omen"],
-        "signal": b["signal"], "counter": b["counter"], "loss": b["loss"],
+        "signal": b["signal"], "counter": b["counter"], "loss": b["loss"], "profile": card_lore(b["id"]),
     } for b in BOSSES]
     return mobs, bosses
 
@@ -1022,10 +1024,35 @@ def do_travel(table, seat, action):
     if party["fightDue"]:
         return fail(table, "Сначала разыграйте дорожную стычку и закройте её на столе.")
     dest = int(action.get("dest") or 0)
+    if action.get("via") not in (None, "road", "portal"):
+        return fail(table, "Выберите дорогу или открытую арку.")
+    if action.get("via") == "portal":
+        if not 1 <= dest <= 10 or dest == party["realm"] or any(
+            party["portals"][n - 1] != "open" for n in (party["realm"], dest)
+        ):
+            return fail(table, "Нужны две разные открытые арки.")
+        pay = action.get("pay")
+        if pay == "supply" and party["supplies"] > 0:
+            party["supplies"] -= 1
+            price = "Израсходован 1 припас."
+        elif pay == "tide":
+            price = " ".join(["Прилив +1.", *add_tide(table, 1)])
+        else:
+            return fail(table, "Для арки выберите 1 припас или +1 прилив.")
+        party["realm"] = dest
+        if dest not in party["opened"]:
+            party["opened"].append(dest)
+        log(table, seat, "road", f"Арка в {realms[dest - 1][0]}. День {party['day']}. {price}")
+        return {"ok": True, "road": None}
     if not 1 <= dest <= 10 or not connected(party["realm"], dest):
         return fail(table, "Между этими областями нет дороги.")
     sea_edge = (party["realm"], dest) in SEA
     pay = action.get("pay")
+    physical = "faces" in action
+    if physical:
+        faces = action["faces"]
+        if not isinstance(faces, list) or len(faces) != 1 or type(faces[0]) is not int or not 1 <= faces[0] <= 6:
+            return fail(table, "Введите одну грань дорожного d6 от 1 до 6.")
     if sea_edge:
         if pay == "silver":
             if party["silver"] < 1:
@@ -1052,12 +1079,13 @@ def do_travel(table, seat, action):
         face = None
         road = "дорога без события: яблоня Лиора"
     else:
-        face = d6s(table, 1, action.get("dice"))[0]
+        face = d6s(table, 1, action.get("faces") if physical else action.get("dice"), physical=physical)[0]
         road = apply_road(table, face)
     name = realms[dest - 1][0]
     extra = (" " + " ".join(notes)) if notes else ""
-    shown = f" d6={face}." if face else ""
-    log(table, seat, "road", f"День {party['day']}. Путь в {name}.{shown} {road}.{extra}")
+    shown = (f" Настольный d6={face}." if physical else f" d6={face}.") if face else ""
+    fare = (" Морская плата — " + ("1 серебро." if pay == "silver" else "1 припас.")) if sea_edge else ""
+    log(table, seat, "road", f"День {party['day']}. Путь в {name}.{fare}{shown} {road}.{extra}")
     return {"ok": True, "road": face}
 
 
@@ -1118,10 +1146,9 @@ def move_token(table, seat, action):
             return fail(table, "Этого героя двигает его игрок.")
         here = token["zone"]
         if here and zone != here:
-            path = shortest(graph(scene["links"]), here, zone)
-            if not path:
-                return fail(table, "Прохода нет.")
-            if scene.get("door") and any({path[i], path[i + 1]} == {5, 6} for i in range(len(path) - 1)):
+            if zone not in graph(scene["links"]).get(here, []):
+                return fail(table, "Один шаг ведёт только в соседнюю зону.")
+            if scene.get("door") and {here, zone} == {5, 6}:
                 return fail(table, "Дверь между цистерной и затвором ещё закрыта.")
     token["zone"] = zone
     if token["kind"] == "hero":

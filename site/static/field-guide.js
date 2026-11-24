@@ -3,7 +3,7 @@ const panes = {realm: "Местность", capital: "Двор", village: "Де�
 const normalize = text => text.toLocaleLowerCase("ru").replaceAll("ё", "е");
 const numeral = ["", "I", "II", "III", "IV", "V"];
 
-export function mountFieldGuide({book, modal, el, btn, field, options, section, details}) {
+export function mountFieldGuide({book, modal, el, btn, field, options, section, details, openCard}) {
   let indexed, records = [], open;
   const search = document.getElementById("atlasSearch");
   const results = document.getElementById("atlasResults");
@@ -71,6 +71,7 @@ export function mountFieldGuide({book, modal, el, btn, field, options, section, 
         for (const line of [c.decree,c.ability,c.trait,c.omen,c.signal,c.counter,c.loss].filter(Boolean))
           entry.append(el("p", line));
         illustrateEntry(entry, c.id);
+        entry.append(btn("Открыть карточку",()=>openCard(c.id)));
         if (c.id === ref) entry.open = true;
         list.append(entry);
       }

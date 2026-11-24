@@ -45,6 +45,8 @@ class Problem(Exception):
 
 class GameServer(ThreadingHTTPServer):
     daemon_threads = True
+    # Seven players can each open several asset connections on the first visit.
+    request_queue_size = 64
 
     def __init__(self, address, db):
         self.db = str(db)
@@ -267,6 +269,10 @@ class Handler(BaseHTTPRequestHandler):
                 file = STATIC / "index.html"
             elif path == "/rules.pdf":
                 file = PACK / "01 Правила.pdf"
+            elif path == "/board.pdf":
+                file = PACK / "03 Карты и планшет.pdf"
+            elif match := re.fullmatch(r"/print-cards/(H[0-9]{2}|[MB][0-9]{3})\.pdf", path):
+                file = PACK / "Истории" / "Карты" / (match[1] + ".pdf")
             elif path == "/static/frame.js":
                 file = HERE / "frame.js"
             elif re.fullmatch(r"/static/(?:[\w-]+/)*[\w.-]+", path, re.ASCII):

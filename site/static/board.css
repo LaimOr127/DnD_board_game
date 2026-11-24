@@ -105,3 +105,4 @@
   .mn-tools button { min-height:40px; min-width:32px; padding:.25rem .36rem; }
 }
 @media (pointer:coarse) { .mn-tools button, .mn-key-place { min-height:44px; } }
+.mn-pin[data-reachable="true"] .mn-pin-name { text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 2px; }

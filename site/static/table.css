@@ -925,3 +925,22 @@ summary {
 @media (max-width: 600px) {
   #sessionBar strong { width: 100%; }
 }
+.map-turns:empty { display:none; }
+.map-turns { padding:1rem 0; }
+.map-turns h3,.folio h3 { margin:.4rem 0; }
+.map-destinations,.map-order { display:flex; gap:.6rem; flex-wrap:wrap; }
+.map-order { flex-direction:column; align-items:stretch; }
+.map-order p { margin:.3rem 0; }
+.map-origin { font-weight:bold; }
+.folio-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(11rem,45%),1fr)); gap:1rem; margin-block:1rem; }
+.folio-tile { display:flex; flex-direction:column; gap:.3rem; text-align:left; padding:.55rem; min-width:0; }
+.folio-tile img,.folio-head img { width:100%; object-fit:contain; background:#fbf6e9; border-radius:.25rem; }
+.folio-tile img { height:9.5rem; }
+.folio-tile strong { overflow-wrap:anywhere; }
+.folio-head { display:grid; grid-template-columns:minmax(7rem,35%) 1fr; gap:1.1rem; align-items:center; }
+.folio-head img { height:12rem; }
+.folio-stats { border-block:1px solid var(--edge); padding:.65rem 0; font-weight:bold; }
+@media(max-width:480px) {
+  .folio-head { grid-template-columns:1fr; gap:.5rem; }
+  .folio-head img { height:11rem; }
+}

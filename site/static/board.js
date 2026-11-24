@@ -1,6 +1,7 @@
 import * as THREE from "./vendor/three.module.js";
 import {BOARD_H, BOARD_W, cameraOffset, paperToWorld, sheetToWorld} from "./frame.js";
 import {atlasFeatures, drawRoutes, makePins} from "./atlas-pins.js";
+import {figureName} from "./map-turn.js";
 
 const asset = name => new URL("./assets/" + name + ".webp", import.meta.url).href;
 const clip = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
@@ -50,13 +51,13 @@ function describe(state, book) {
     scene.layout.forEach(([nx, ny], i) => {
       const pos = sheetToWorld(nx, ny);
       const here = scene.tokens.filter(t => t.zone === i + 1 && !t.waiting && (t.kind === "hero" || t.hp > 0));
-      labels.push({...pos, title:(i + 1) + " · " + scene.zones[i], group:true});
+      labels.push({...pos, zone:i+1, title:(i + 1) + " · " + scene.zones[i], group:true});
       here.forEach((t, j) => {
         const offset = spread(j, here.length, here.length > 3 ? .72 : .44);
         figures.push({
           ...t, x:pos.x + offset.x, z:pos.z + offset.z, color:t.color || colorByKind[t.kind],
           size:t.kind === "boss" ? 1.12 : here.length > 4 ? .64 : .83,
-          title:t.name + (t.hp === 0 ? " · лежит" : "") + " · " + scene.zones[i] + " · " + t.hp + "/" + t.maxHp + " ОЗ",
+          title:figureName(t) + (t.hp === 0 ? " · лежит" : "") + " · " + scene.zones[i] + " · " + t.hp + "/" + t.maxHp + " ОЗ",
         });
       });
     });
@@ -111,7 +112,7 @@ function readFigure(buffer) {
   return geo;
 }
 
-export function createBoard(container, {onInspect} = {}) {
+export function createBoard(container, {onInspect,onZone,onCard} = {}) {
   const board = element("div", "mn-board");
   if (!document.querySelector("link[data-mn-board]")) {
     const css = element("link");
@@ -229,7 +230,14 @@ export function createBoard(container, {onInspect} = {}) {
         context.lineWidth = 2;
         context.stroke();
       }
-      hits.push({...p,title:f.title});
+      if (f.kind === "foe" || f.kind === "boss") {
+        const number=f.id.slice(1);
+        context.font="bold 11px system-ui"; context.textAlign="center"; context.textBaseline="middle";
+        const w=Math.max(16,context.measureText(number).width+6);
+        context.fillStyle="#522b25"; context.fillRect(p.x-w/2,p.y-17,w,14);
+        context.fillStyle="#fff7df"; context.fillText(number,p.x,p.y-10);
+      }
+      hits.push({...p,title:f.title,token:f.id,card:["hero","foe","boss"].includes(f.kind) ? f.ref : null});
     }
     context.font = '600 12px system-ui, sans-serif';
     context.textAlign = "center";
@@ -241,6 +249,7 @@ export function createBoard(container, {onInspect} = {}) {
       context.fillRect(p.x - w/2,p.y-9,w,18);
       context.fillStyle = "#fff1cf";
       context.fillText(label.title,p.x,p.y);
+      if (label.zone) hits.push({...p,title:label.title,zone:label.zone,halfWidth:w/2});
     });
     if (model.atlas) pins.render({screen,scale,selected:selectedPin,region:activeRealm,width,height,context});
     percent.textContent = Math.round(scale*100)+"%";
@@ -426,11 +435,13 @@ export function createBoard(container, {onInspect} = {}) {
   function selectFigure(p) {
     let closest, distance=23;
     for (const hit of hits) {
-      const d=Math.hypot(hit.x-p.x,hit.y-p.y);
+      const d=hit.zone && Math.abs(hit.x-p.x)<=hit.halfWidth && Math.abs(hit.y-p.y)<=10 ? 0 : Math.hypot(hit.x-p.x,hit.y-p.y);
       if (d<distance) { closest=hit; distance=d; }
     }
     selected=closest?.title || ""; selectedPin=null;
     status.textContent=selected || model?.description || ""; schedule();
+    if (closest?.zone) onZone?.(closest.zone);
+    else if (closest?.card) onCard?.(closest.card,closest.token);
   }
   function control(id, text, label, act) {
     const button=element("button","",text);
@@ -480,13 +491,14 @@ export function createBoard(container, {onInspect} = {}) {
     zoom(Math.exp(-clip(event.deltaY*unit,-250,250)*.0025),localPoint(event));
   }, {passive:false});
   const pointers=new Map();
-  let gesture=null;
+  let gesture=null, tap=null;
   function pair() {
     const [a,b]=pointers.values();
     return {x:(a.x+b.x)/2,y:(a.y+b.y)/2,d:Math.max(1,Math.hypot(a.x-b.x,a.y-b.y))};
   }
   stage.addEventListener("pointerdown", event => {
     if (event.button!==0 || pointers.size>=2) return;
+    tap=null;
     const p=localPoint(event);
     if (!pointers.size) {
       gesture={start:p,key:event.target.closest(".mn-pin")?.dataset.key,moved:false};
@@ -516,14 +528,20 @@ export function createBoard(container, {onInspect} = {}) {
     if (event.type==="pointerup" && !pointers.size && !gesture.moved) {
       const p=localPoint(event);
       if (Math.hypot(p.x-gesture.start.x,p.y-gesture.start.y)<6) {
-        if (gesture.key) inspectPin(gesture.key);
-        else selectFigure(p);
+        tap={key:gesture.key,point:p};
       }
     }
     if (!pointers.size) gesture=null;
     else gesture.moved=true;
   }
   for (const type of ["pointerup","pointercancel","lostpointercapture"]) stage.addEventListener(type,endPointer);
+  // Wait for the native click before opening a dialog so a touch cannot land a second click on it.
+  stage.addEventListener("click",event=>{
+    if (!tap || event.detail===0) return;
+    const target=tap; tap=null;
+    if (target.key) inspectPin(target.key);
+    else selectFigure(target.point);
+  });
   webgl.addEventListener("webglcontextlost", event => {
     event.preventDefault();
     renderer?.dispose();

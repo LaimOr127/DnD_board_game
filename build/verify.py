@@ -5,6 +5,7 @@ from PIL import Image,ImageDraw,ImageOps
 from printkit import OUT,ROOT,cards,MOBS,BOSSES,heroes,items,schools,QUESTS
 from world import realms,edges,acts,endings
 from field_guide import GUIDES
+from chronicle_cards import validate_chronicles
 from foes import families
 from roadside import MEETINGS
 from edicts import edicts
@@ -55,13 +56,18 @@ def main():
     solid = manifold3d.Manifold(manifold3d.Mesh(die.vertices.astype('float32'), die.faces.astype('uint32')))
     assert die.is_volume and len(solid.decompose())==1 and np.allclose(die.extents,[16,16,16])
     assert np.linalg.norm(die.center_mass-[0,0,8]) < 0.01
-    expected=[7,24,55,8,2,34,12,5,8];pdfs=sorted(OUT.glob('*.pdf'));assert len(pdfs)==9;pagecounts={};tmp=ROOT/'qa-temp';tmp.mkdir(exist_ok=True);allthumb=[]
+    expected=[7,24,55,13,2,34,12,5,8];pdfs=sorted(OUT.glob('*.pdf'));assert len(pdfs)==9;pagecounts={};tmp=ROOT/'qa-temp';tmp.mkdir(exist_ok=True);allthumb=[]
     for ix,p in enumerate(pdfs):
         d=pymupdf.open(p);assert len(d)==expected[ix],(p,len(d));pagecounts[p.name]=len(d);alltext=''
         for pi,pg in enumerate(d):
             alltext+=pg.get_text();pix=pg.get_pixmap(matrix=pymupdf.Matrix(.33,.33),alpha=False);ar=np.frombuffer(pix.samples,'uint8').reshape(pix.height,pix.width,3);assert ar.std()>9,(p,pi);allthumb.append((p.stem[:2]+'.'+str(pi+1),Image.fromarray(ar)))
         if ix in [4,5,6,7]:
             pref=['H','M','B','I'][ix-4];assert all(k in alltext for k in cards if k[0]==pref),(p,'missing card')
+        if ix == 3:
+            travel_pages = ' '.join(d[i].get_text().casefold() for i in range(8,13))
+            for region in realms:
+                assert region[3].casefold() in travel_pages, region[3]
+                assert all(hidden.casefold() not in travel_pages for hidden in (region[8],region[11])), region[0]
         if ix in [0,1,2]:assert 'море' in alltext.casefold() and '□' not in alltext
         if ix == 1:
             from printkit import parse_book
@@ -132,5 +138,7 @@ def main():
             pic=ImageOps.contain(im,(118,143));x=(j%8)*125;y=(j//8)*163;sheet.paste(pic,(x,y));dr.text((x,y+143),tag,fill='black')
         sheet.save(tmp/f'all-{k}.jpg')
     simulations=[sim(n,t,n*971+t) for n in range(2,7) for t in [1,3,5]]
-    res={'контент':{'герои':18,'обычные':300,'боссы':100,'вещи':40,'королевства':10,'народы':10,'полевые_листы':len(GUIDES),'старосты':len(heads),'жители_на_полевых_листах':len(names),'регионы_связны':True,'финалы':8,'местные_контракты':30,'главы':5,'общие_поручения_Неры':2,'личные_поручения':len(QUESTS),'личные_решения':sum(len(q.paths) for q in QUESTS.values())},'проверка':{'файлы_STL':len(geom),'отдельный_кубик_d6_STL':1,'открытые_рёбра_или_плохой_обход':len(faults),'карточки_PNG':len(images),'страницы_PDF':pagecounts,'все_страницы_отрисованы':True},'модель':'Условный неподвижный босс; все бьют штатным оружием по сильной характеристике, фокус врага по раненому. Без рун, лечения, брони, критической искры, особенностей, сигналов, движения и переговоров. Проверяет только базовую арифметику боя. Это не плейтест.','моделирование':simulations};(OUT/'Проверка.json').write_text(json.dumps(res,ensure_ascii=False,indent=2),encoding='utf8');print(json.dumps(res,ensure_ascii=False,indent=1))
+    res={'контент':{'герои':18,'обычные':300,'боссы':100,'вещи':40,'королевства':10,'народы':10,'полевые_листы':len(GUIDES),'старосты':len(heads),'жители_на_полевых_листах':len(names),'регионы_связны':True,'финалы':8,'местные_контракты':30,'главы':5,'общие_поручения_Неры':2,'личные_поручения':len(QUESTS),'личные_решения':sum(len(q.paths) for q in QUESTS.values())},'проверка':{'файлы_STL':len(geom),'отдельный_кубик_d6_STL':1,'открытые_рёбра_или_плохой_обход':len(faults),'карточки_PNG':len(images),'страницы_PDF':pagecounts,'все_страницы_отрисованы':True},'модель':'Условный неподвижный босс; все бьют штатным оружием по сильной характеристике, фокус врага по раненому. Без рун, лечения, брони, критической искры, особенностей, сигналов, движения и переговоров. Проверяет только базовую арифметику боя. Это не плейтест.','моделирование':simulations}
+    res['проверка']['карточки_с_историей'] = validate_chronicles()
+    (OUT/'Проверка.json').write_text(json.dumps(res,ensure_ascii=False,indent=2),encoding='utf8');print(json.dumps(res,ensure_ascii=False,indent=1))
 if __name__=='__main__':main()

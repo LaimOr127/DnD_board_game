@@ -11,7 +11,9 @@ export function atlasFeatures(book, party) {
     const {id,x,y} = realm;
     const point = paperToWorld(x,y);
     centers.set(id, point);
-    const add = (kind, title, pos) => pins.push({key:id+"-"+kind, id, kind, title, ...pos});
+    const reachable = party.realm && party.realm !== id && (book.edges.some(e => e.includes(id) && e.includes(party.realm)) ||
+      (party.portals?.[party.realm-1] === "open" && party.portals[id-1] === "open"));
+    const add = (kind, title, pos) => pins.push({key:id+"-"+kind, id, kind, title, reachable:kind==="realm" && reachable, ...pos});
     add("realm", realm.name, point);
     add("capital", realm.capital, point);
     // The village is the first dwelling printed beside the capital on the paper atlas.
@@ -23,7 +25,7 @@ export function atlasFeatures(book, party) {
   for (const [a,b] of book.edges) {
     if (!centers.has(a) || !centers.has(b)) continue;
     const sea = book.sea.some(pair => pair.includes(a) && pair.includes(b));
-    roads.push({a:centers.get(a),b:centers.get(b),sea});
+    roads.push({a:centers.get(a),b:centers.get(b),sea,near:party.realm===a || party.realm===b});
   }
   return {pins, roads};
 }
@@ -31,17 +33,17 @@ export function atlasFeatures(book, party) {
 export function drawRoutes(context, roads, screen) {
   context.save();
   context.lineCap = "round";
-  for (const {a,b,sea} of roads) {
+  for (const {a,b,sea,near} of roads) {
     const start = screen(a.x,0,a.z), end = screen(b.x,0,b.z);
     context.beginPath();
     context.moveTo(start.x,start.y);
     context.lineTo(end.x,end.y);
     context.strokeStyle = sea ? "#c3e0ddcf" : "#f5e1b9bd";
-    context.lineWidth = 2.8;
+    context.lineWidth = near ? 5.4 : 2.8;
     context.setLineDash(sea ? [5,5] : [2.5,3]);
     context.stroke();
     context.strokeStyle = sea ? "#2d595ecf" : "#74533bd4";
-    context.lineWidth = 1.25;
+    context.lineWidth = near ? 2.7 : 1.25;
     context.stroke();
   }
   context.restore();
@@ -97,6 +99,7 @@ export function makePins(layer, inspect) {
         entries.set(pin.key,entry);
       }
       entry.pin = pin;
+      entry.button.dataset.reachable = String(pin.reachable);
       const type = types[pin.kind][0];
       const label = pin.kind === "party" || type === pin.title ? pin.title : type + " · " + pin.title;
       if (entry.button.title !== label) {

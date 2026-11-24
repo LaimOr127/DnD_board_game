@@ -92,6 +92,8 @@ def decks():
         c=Canvas(str(OUT/(fn+'.pdf')),pagesize=A4);c.setTitle(fn+' · Море имён');keys=[k for k in cards if k.startswith(prefix)]
         for i in range(0,len(keys),9):sheet(c,keys[i:i+9],keys[i]+' — '+keys[min(i+8,len(keys)-1)])
         c.save()
+    from chronicle_cards import build_chronicles
+    build_chronicles()
 
 def parse_book(filename='rules.md'):
     pages=[]

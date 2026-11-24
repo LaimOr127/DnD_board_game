@@ -1,10 +1,13 @@
 import {mountSaves} from "./saves.js";
 import {mountFreeplay} from "./freeplay.js";
 import {mountFieldGuide} from "./field-guide.js";
+import {mountCardCatalog} from "./card-catalog.js";
+import {mountMapTurn, adjacentZones, figureName} from "./map-turn.js";
 const $ = (id) => document.getElementById(id);
 const dlg = $("dialog"),
   body = $("dialogBody");
 let book,
+  publicBook,
   state,
   board,
   online,
@@ -24,7 +27,10 @@ const growth = {
 const hostTip = "Выбор группы записывает создатель стола.";
 const saves = mountSaves({state: () => state, request, accept, modal, report});
 const free = mountFreeplay({state: () => state, command, request, accept, modal, report, saves});
-const guide = mountFieldGuide({book: () => book, modal, el, btn, field, options, section, details});
+const catalog = mountCardCatalog({book:()=>publicBook, el, add, btn, img, field, options, section, modal, link, hero:heroSheet});
+const guide = mountFieldGuide({book: () => book, modal, el, btn, field, options, section, details, openCard:catalog.open});
+const mapTurn = mountMapTurn({state:()=>state,book:()=>book,el,btn,field,options,modal,act:command,access,
+  close:()=>{ if(dlg.open) dlg.close(); }, inspect:guide.show,card:figureCard});
 const playing = () => state?.session?.status === "active";
 let roomEpoch = 0;
 
@@ -329,9 +335,10 @@ function showHeroes() {
 function heroSheet(id) {
   const c = hero(id),
     h = state?.heroes[id],
+    profile = publicBook.heroes.find(card=>card.id===id).profile,
     own = mine() === id;
   const portrait = img("/static/assets/portraits/" + id + ".webp", "Портрет героя " + c.name, "hero-detail");
-  const intro = box(portrait, el("p", c.school + " · " + c.role, "meta"), el("p", c.story), el("p", c.bond));
+  const intro = box(portrait, el("p", c.id + " · " + c.school + " · " + c.role, "meta"), el("h3","Краткая история"),el("p", c.story), el("p", c.bond));
   const numbers = add(
     el("div", null, "tags clear"),
     ...Object.entries(stats).map(([k, v]) => tagged(v, c[k])),
@@ -340,10 +347,13 @@ function heroSheet(id) {
   const content = [
     intro,
     numbers,
+    catalog.pdf(id),
     el("p", "Старт · 8 ОЗ, 3 искры, красный отвар и " + item.name.toLowerCase() + ".", "small"),
     btn("Посмотреть снаряжение", () => equipment(item.id), "text-button"),
     section("Приём", el("p", c.technique)),
-    section("Талант", el("p", c.talent)),
+    section("Талант роста · " + profile.passive_name, el("p", c.talent)),
+    section("В отряде", el("p", profile.counter)),
+    ...(profile.debuff ? [section("Состояния",el("p",profile.debuff))] : []),
   ];
   if (!state) content.push(btn("Создать стол для игры", () => access(false), "primary"));
   else if (!h.owner && !mine())
@@ -501,6 +511,7 @@ function equipment(initialId) {
 
 function renderLibrary(tab) {
   const lib = $("library");
+  if (tab === "cards") return catalog.index(lib);
   if (tab === "heroes") {
     const grid = add(el("div", null, "hero-grid"), ...book.heroes.map(card));
     lib.replaceChildren(
@@ -567,7 +578,7 @@ function renderLibrary(tab) {
   );
 }
 function currentTab() {
-  return ["#heroes", "#rules", "#atlas"].includes(location.hash) ? location.hash.slice(1) : "table";
+  return ["#heroes", "#rules", "#atlas","#cards"].includes(location.hash) ? location.hash.slice(1) : "table";
 }
 let drawnTab = "";
 function render() {
@@ -588,9 +599,10 @@ function render() {
   });
   if (tab === "atlas") {
     guide.index();
+    mapTurn.controls($("atlasTurns"), true);
     void updateBoard();
   } else if (tab !== "table") {
-    if (tab !== "rules" || drawnTab !== tab) renderLibrary(tab);
+    if (!["rules","cards"].includes(tab) || drawnTab !== tab) renderLibrary(tab);
   } else if (isFree) {
     $("chapterLabel").textContent = "Свободный планшет";
     $("tableTitle").textContent = state.title;
@@ -603,13 +615,18 @@ function render() {
   drawnTab = tab;
 }
 let mapImport;
+function figureCard(ref,tokenId) {
+  const target=state?.scene?.tokens.find(t=>t.id===tokenId && t.ref===ref && ["foe","boss"].includes(t.kind) && t.hp>0 && !t.waiting);
+  const attacker=mine() && state.heroes[mine()];
+  return catalog.open(ref, target && attacker?.hp>0 && playing() ? ()=>diceDialog(tokenId) : null);
+}
 const mapMount = el("div");
 async function updateBoard() {
   if (!board) {
     mapImport ||= import("/static/board.js");
     try {
       const m = await mapImport;
-      board ||= m.createBoard(mapMount, {onInspect:guide.show});
+      board ||= m.createBoard(mapMount, {onInspect:mapTurn.route,onZone:mapTurn.zone,onCard:figureCard});
     } catch {
       mapImport = null;
       const target = currentTab() === "atlas" ? $("atlasMap") : $("map");
@@ -638,12 +655,13 @@ function renderGame() {
   $("mapTitle").textContent = s ? s.title : "Карта десяти королевств";
   $("position").textContent = s ? "Раунд " + s.round : "День " + p.day + " · " + realm().village;
   void updateBoard();
+  mapTurn.controls($("mapTurns"));
   const loc = $("locations");
   loc.replaceChildren(el("p", realm().name + " · " + realm().biome + ". " + realm().npc + "."));
   if (s) {
     for (const t of s.tokens) {
       const caption =
-        t.name +
+        figureName(t) +
         " — " +
         (t.waiting ? "подкрепление" : s.zones[t.zone - 1] || "вне поля") +
         (t.kind === "npc" ? "" : " · " + t.hp + "/" + t.maxHp + " ОЗ");
@@ -654,6 +672,7 @@ function renderGame() {
               .filter(Boolean)
               .map((v) => el("p", v)),
         );
+        entry.append(btn("Открыть карточку",()=>figureCard(t.ref,t.id)));
         loc.append(guide.illustrateEntry(entry, t.ref));
       } else loc.append(el("p", caption));
     }
@@ -1047,10 +1066,7 @@ function controls() {
   if (state.you.heroId && s) {
     const t = s.tokens.find((t) => t.kind === "hero" && t.ref === mine());
     if (t) {
-      const next = s.links
-        .filter((a) => a.includes(t.zone))
-        .map((a) => a.find((z) => z !== t.zone))
-        .filter((z) => !(s.door && [5, 6].includes(t.zone) && [5, 6].includes(z)));
+      const next = adjacentZones(s,t.zone);
       if (next.length) {
         const dest = options(next.map((z) => [z, s.zones[z - 1]]));
         list.append(
@@ -1124,7 +1140,7 @@ function controls() {
       );
       const enemies = s.tokens.filter((t) => ["foe", "boss"].includes(t.kind));
       if (enemies.length) {
-        const foe = options(enemies.map((t) => [t.id, t.name + " · " + t.hp + " ОЗ"]));
+        const foe = options(enemies.map((t) => [t.id, figureName(t) + " · " + t.hp + " ОЗ"]));
         const hp = el("input");
         hp.type = "number";
         hp.min = 0;
@@ -1182,7 +1198,7 @@ function controls() {
   area.replaceChildren(list);
 }
 
-function diceDialog() {
+function diceDialog(targetId) {
   const kind = options([
     ["check", "Проверка"],
     ["attack", "Атака"],
@@ -1221,9 +1237,11 @@ function diceDialog() {
   );
   const target = options([
     ["", "На бумаге · ввести защиту"],
-    ...foes.map((t) => [t.id, t.name + " · защита " + t.defense]),
+    ...foes.map((t) => [t.id, figureName(t) + " · защита " + t.defense]),
   ]);
-  if (foes.length) target.value = foes[0].id;
+  if (targetId && !foes.some(t=>t.id===targetId)) throw Error("Этой фигуры уже нет в стычке.");
+  if (foes.length) target.value = targetId || foes[0].id;
+  if (targetId) kind.value = "attack";
   const statL = field("Характеристика", stat),
     dcL = field("Порог", dc),
     customL = field("Значение порога", custom),
@@ -1497,7 +1515,8 @@ async function init() {
     online = await module.makeOnline();
     book = await request("/api/lobby");
   }
-  if (currentTab() === "atlas") render();
+  publicBook = book;
+  if (["atlas","cards"].includes(currentTab())) render();
   const epoch = roomEpoch;
   try {
     const saved = (invitation
@@ -1522,7 +1541,7 @@ $("createButton").onclick = () => access(false);
 $("joinButton").onclick = () => access(true);
 $("roomButton").onclick = () => myTables().catch(report);
 $("invite").onclick = invite;
-$("openDice").onclick = diceDialog;
+$("openDice").onclick = () => diceDialog();
 $("openGm").onclick = gmDialog;
 $("openLog").onclick = logDialog;
 $("openPromises").onclick = promiseDialog;
