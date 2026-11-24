@@ -5,7 +5,11 @@ import numpy as np,trimesh
 from PIL import ImageOps
 
 def render_stl(group,name,size=(500,320),color='#bb8d5d',vertical=False):
-    o=trimesh.load_mesh(OUT/'3D'/group/(name+'.stl'),process=False);v=o.vertices.copy()
+    model=trimesh.load_mesh(OUT/'3D'/group/(name+'.stl'),process=False)
+    return render_mesh(model,size,color,vertical)
+
+def render_mesh(o,size,color,vertical=False):
+    v=o.vertices.copy()
     if vertical:v=v[:,[0,2,1]]*np.array([1,-1,1])
     direction=np.array([.69,-1.45,1.30] if not vertical else [.49,-1.7,.62]);direction/=np.linalg.norm(direction);right=np.cross([0,0,1],direction);right/=np.linalg.norm(right);up=np.cross(direction,right)
     q=np.column_stack((v@right,-v@up));w,h=size;ext=np.ptp(q,axis=0);scale=min((w-32)/max(ext[0],1),(h-32)/max(ext[1],1));q=(q-(q.min(0)+q.max(0))/2)*scale+[w/2,h/2];f=o.faces;tri=v[f];normal=np.cross(tri[:,1]-tri[:,0],tri[:,2]-tri[:,0]);normal/=np.maximum(1e-8,np.linalg.norm(normal,axis=1))[:,None];light=np.array([-.6,-.8,1.7]);light/=np.linalg.norm(light);intens=np.clip(.59+.48*(normal@light),.26,1.16);rgb=np.array(tuple(bytes.fromhex(color[1:])));im=Image.new('RGB',size,'#eee8d8');d=ImageDraw.Draw(im)
