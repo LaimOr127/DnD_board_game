@@ -8,12 +8,26 @@ export function adjacentZones(scene, zone) {
     .map(edge => edge.find(n => n !== zone));
 }
 
+export function canSeeHeroStatus(state, heroId) {
+  if (!state.scene || heroId === state.you?.heroId) return true;
+  const figures = state.scene.tokens;
+  const actor = figures.find(t => t.kind === "hero" && t.ref === state.you?.heroId && t.zone);
+  const ally = figures.find(t => t.kind === "hero" && t.ref === heroId && t.zone);
+  return Boolean(actor && ally && (actor.zone === ally.zone || adjacentZones(state.scene, actor.zone).includes(ally.zone)));
+}
+
+export function figureHealth(state, token) {
+  if (token.kind === "npc" || (token.kind === "hero" && !canSeeHeroStatus(state,token.ref))) return "";
+  return " · " + token.hp + "/" + token.maxHp + " ОЗ" + (token.hp === 0 ? " · лежит" : "");
+}
+
 export function mountMapTurn({state, book, el, btn, field, options, modal, act, close, inspect, card, access}) {
   const realm = n => book().realms.find(r => r.id === n);
   const near = (a,b) => book().edges.some(e => e.includes(a) && e.includes(b)) && a !== b;
   const sea = (a,b) => book().sea.some(e => e.includes(a) && e.includes(b)) && a !== b;
   const gate = (p,n) => p.realm !== n && p.portals[p.realm-1] === "open" && p.portals[n-1] === "open";
   const currentHero = s => s.scene.tokens.find(t => t.kind === "hero" && !t.waiting && t.ref === s.you.heroId);
+  let zoneFigures;
 
   function record(label, s, payload, byPosition = false) {
     const button = btn(label, async () => {
@@ -66,12 +80,10 @@ export function mountMapTurn({state, book, el, btn, field, options, modal, act, 
     const s = state(), sc = s?.scene;
     if (!sc || !sc.zones[n-1]) return;
     const panel = el("div",null,"map-order"), hero = currentHero(s);
-    const present = sc.tokens.filter(t => t.zone === n && !t.waiting && (t.kind === "hero" || t.hp > 0));
-    for (const t of present) {
-      if (["hero","foe","boss"].includes(t.kind)) panel.append(btn(figureName(t) + " · " + t.hp + "/" + t.maxHp + " ОЗ",() => card(t.ref,t.id),"text-button"));
-      else panel.append(el("p",t.name));
-    }
-    if (!present.length) panel.append(el("p","В зоне нет фигур."));
+    const figures = el("div", null, "stack");
+    zoneFigures = {root:figures, zone:n, map:sc.id};
+    refreshZoneFigures(s);
+    panel.append(figures);
     const turn = sc.bellTurns?.[hero?.ref];
     const heroPhase = !sc.storyBell || (!sc.goal && sc.round <= 3 && sc.enemyRound !== sc.round);
     if (hero && heroPhase && adjacentZones(sc,hero.zone).includes(n) && hero.hp > 0 && s.session.status === "active") {
@@ -83,8 +95,23 @@ export function mountMapTurn({state, book, el, btn, field, options, modal, act, 
     panel.append(el("p","Открытые проходы: " + adjacentZones(sc,n).map(k=>k+" · "+sc.zones[k-1]).join(", ") + ".", "small"));
     modal("Зона " + n + " · " + sc.zones[n-1],panel);
   }
+  function refreshZoneFigures(s) {
+    const open = zoneFigures;
+    if (!open) return;
+    const present = s?.scene?.id === open.map
+      ? s.scene.tokens.filter(t => t.zone === open.zone && !t.waiting && (t.kind === "hero" || t.hp > 0)) : [];
+    const labels = present.map(t => figureName(t) + figureHealth(s,t));
+    const key = JSON.stringify(present.map((t,i)=>[t.id,labels[i]]));
+    if (open.key === key) return;
+    open.key = key;
+    open.root.replaceChildren(...present.map((t,i) => t.kind === "npc" ? el("p",labels[i])
+      : btn(labels[i],()=>card(t.ref,t.id),"text-button")));
+    if (!present.length) open.root.append(el("p","В зоне нет фигур."));
+  }
   function controls(root, atlas = false) {
     const s=state(), p=s?.party;
+    if (zoneFigures?.root.isConnected) refreshZoneFigures(s);
+    else zoneFigures = null;
     root.replaceChildren();
     if (!s) {
       root.append(el("h3","Сыграть на этой карте"),el("p","Создайте партию или введите код друзей. Положение отряда и ходы будут общими."),

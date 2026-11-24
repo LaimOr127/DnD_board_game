@@ -1,7 +1,7 @@
 import * as THREE from "./vendor/three.module.js";
 import {BOARD_H, BOARD_W, cameraOffset, paperToWorld, sheetToWorld} from "./frame.js";
 import {atlasFeatures, drawRoutes, makePins} from "./atlas-pins.js";
-import {figureName} from "./map-turn.js";
+import {figureName, figureHealth} from "./map-turn.js?v=team";
 
 const asset = name => new URL("./assets/" + name + ".webp", import.meta.url).href;
 const clip = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
@@ -57,7 +57,7 @@ function describe(state, book) {
         figures.push({
           ...t, x:pos.x + offset.x, z:pos.z + offset.z, color:t.color || colorByKind[t.kind],
           size:t.kind === "boss" ? 1.12 : here.length > 4 ? .64 : .83,
-          title:figureName(t) + (t.hp === 0 ? " · лежит" : "") + " · " + scene.zones[i] + " · " + t.hp + "/" + t.maxHp + " ОЗ",
+          title:figureName(t) + " · " + scene.zones[i] + figureHealth(state,t),
         });
       });
     });

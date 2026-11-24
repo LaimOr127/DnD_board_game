@@ -2,7 +2,7 @@ import {mountSaves} from "./saves.js";
 import {mountFreeplay} from "./freeplay.js";
 import {mountFieldGuide} from "./field-guide.js";
 import {mountCardCatalog} from "./card-catalog.js";
-import {mountMapTurn, adjacentZones, figureName} from "./map-turn.js?v=prologue";
+import {mountMapTurn, adjacentZones, figureName, figureHealth, canSeeHeroStatus} from "./map-turn.js?v=team";
 const $ = (id) => document.getElementById(id);
 const dlg = $("dialog"),
   body = $("dialogBody");
@@ -640,7 +640,7 @@ function figureCard(ref,tokenId) {
 const mapMount = el("div");
 async function updateBoard() {
   if (!board) {
-    mapImport ||= import("/static/board.js");
+    mapImport ||= import("/static/board.js?v=team");
     try {
       const m = await mapImport;
       board ||= m.createBoard(mapMount, {onInspect:mapTurn.route,onZone:mapTurn.zone,onCard:figureCard});
@@ -659,6 +659,24 @@ async function updateBoard() {
     ? {...state, party:state?.party || {realm:null, portals:[]}, heroes:state?.heroes || {}, scene:null}
     : state, book);
 }
+function partyRoster() {
+  const roster = el("dl",null,"party-roster");
+  for (const seat of state.seats) {
+    const ally = state.heroes[seat.heroId];
+    if (seat.id === state.you.id) continue;
+    const label = ally ? hero(ally.id).name : seat.name;
+    let status = "Выбирает героя";
+    if (ally) {
+      if (canSeeHeroStatus(state,ally.id)) {
+        status = [ally.hp + "/" + ally.maxHp + " ОЗ", ally.hp === 0 && "лежит",
+          ally.shield > 0 && "щит " + ally.shield, ...ally.conditions].filter(Boolean).join(" · ");
+      } else status = state.you.heroId ? "Вне обзора" : "Выберите героя для обзора";
+    }
+    roster.append(add(el("div"),el("dt",label),el("dd",status)));
+  }
+  return roster.childElementCount ? roster : null;
+}
+
 function renderGame() {
   const p = state.party,
     s = state.scene,
@@ -683,7 +701,7 @@ function renderGame() {
         figureName(t) +
         " — " +
         (t.waiting ? "подкрепление" : s.zones[t.zone - 1] || "вне поля") +
-        (t.kind === "npc" ? "" : " · " + t.hp + "/" + t.maxHp + " ОЗ");
+        figureHealth(state,t);
       if (t.kind === "boss" || t.kind === "foe") {
         const entry = details(
             caption,
@@ -716,8 +734,8 @@ function renderGame() {
           box(
             el("strong", c.name),
             el("p", h.hp + "/" + h.maxHp + " ОЗ · " + h.sparks + "/" + h.maxSparks + " искр"),
-            s?.storyBell && h.shield ? el("p","Щит: "+h.shield,"small") : null,
-            s?.storyBell && h.conditions.length ? el("p",h.conditions.join(", "),"small") : null,
+            h.shield ? el("p","Щит: "+h.shield,"small") : null,
+            h.conditions.length ? el("p",h.conditions.join(", "),"small") : null,
           ),
         )
       : el("h2", "Выберите героя"),
@@ -728,11 +746,11 @@ function renderGame() {
     add(
       el("div", null, "tags"),
       tagged("ур.", p.level),
-      tagged("серебра", p.silver),
+      tagged("серебра в казне", p.silver),
       tagged("припасов", p.supplies),
       tagged("прилив", p.tide + "/6"),
     ),
-    el("p", state.seats.map((x) => (x.heroId ? hero(x.heroId).name : x.name)).join(" · "), "small"),
+    partyRoster(),
   );
   $("pageTag").textContent = st.ending ? "Эпилог" : "Читать вслух";
   $("storyTitle").textContent = st.title;
