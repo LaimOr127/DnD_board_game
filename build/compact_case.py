@@ -8,6 +8,7 @@ from PIL import Image, ImageDraw
 
 from art import sprite
 from case_k1c import printable_mesh
+from case_texture import exterior_edges, lid_face
 from figure_plates import COLLECTION, batches, check_plate
 from k1c_plates import BOSSES as BOSS_MODELS, OUTPUT, POSED, arrange, geometry, pieces, write_plate
 from maps import font
@@ -64,7 +65,7 @@ def raised_label(value, width, height, z, x, y, size=105):
     return relief(np.asarray(mask),scale,.72,z,(x-scale*mask.width/2,y-scale*mask.height/2))
 
 
-def lid(right):
+def lid(right, textured=False):
     rim = [box(0,0,BODY+.6,W,4,TOP-BODY-.6),box(0,D-4,BODY+.6,W,4,TOP-BODY-.6),
            box(W-WALL if right else 0,3.8,BODY+.6,WALL,D-7.6,TOP-BODY-.6)]
     shell = union([box(0,0,TOP-DECK,W,D,DECK),*rim,knuckles(True)])
@@ -72,6 +73,10 @@ def lid(right):
         x = 0 if right else W-8
         shell += box(x,y-3.6,BODY+.6,8,7.2,TOP-BODY-.6)
         shell -= bore(x-.1,y,117,8.2,up=-1)
+    if textured:
+        side = 'right' if right else 'left'
+        shell = union([shell,lid_face(W,D,TOP,30+right),*exterior_edges(
+            W,D,BODY+.6,TOP,(side,),40+right*4,inset=1.1,rear_hinge=(71,97,110))])
     # Two slots accept one flat elastic band on each lid half.
     shell -= union([box(W/2-9,y-1.4,TOP-DECK-.15,18,2.8,DECK+.25)
                     for y in (7,D-7)])
@@ -106,7 +111,7 @@ def card_slots():
     return union(parts)
 
 
-def tub(right):
+def tub(right, textured=False):
     a,b = (SEAM,WALL) if right else (WALL,SEAM)
     shell = box(0,0,0,W,D,BODY)-box(a,WALL,FLOOR,W-a-b,D-2*WALL,BODY)
     shell += knuckles(False)
@@ -119,6 +124,9 @@ def tub(right):
             else:
                 recess = cyl(0,0,0,4.4,2.35,2.2,n=32).rotate((0,90,0))
                 shell -= recess.translate((W-SEAM-.05,y,z))
+    if textured:
+        side = 'right' if right else 'left'
+        shell = union([shell,*exterior_edges(W,D,0,BODY,(side,),10+right*4,rear_hinge=(57,110,95))])
     return shell if right else shell+card_slots()
 
 
@@ -170,12 +178,20 @@ def marker(code, creature=None):
     return union([base,*figures,idrel(code,.72,-4.6,-9.6,2.32)])
 
 
+def texture_sample(textured):
+    w,d,h = 42,22,26
+    coupon = box(0,0,0,w,d,h)-box(WALL,WALL,FLOOR,w-2*WALL,d-2*WALL,h)
+    if textured:
+        coupon = union([coupon,*exterior_edges(w,d,0,h,('left','right'),0)])
+    return coupon
+
+
 def sample():
     bottom = (box(57,0,97,54,8,BODY-97)+knuckles(False)).translate((-57,0,-97))
     top = (box(57,0,TOP-DECK,54,14,DECK)+knuckles(True)).translate((-57,0,0))
     width = box(0,0,0,98,16,2.8)+union([box(x,0,2.7,2.5,16,7) for x in (0,95.5)])
     seams = [tub(right)^box(0 if right else W-SEAM,5,8,SEAM,18,20) for right in (False,True)]
-    return bottom, top.rotate((180,0,0)), width, *seams
+    return bottom, top.rotate((180,0,0)), width, *seams, texture_sample(False), texture_sample(True)
 
 
 def verify():
@@ -235,11 +251,11 @@ def main():
     verify()
     index = []
     tokens = [marker(f'{code}{i}',creature) for code,creature,_ in CROWDS for i in range(1,4)]
-    plates = [('00-fit','Петля, проба соединения М4 и калибр карты', 2, sample()),
-              ('01-cards','Половина корпуса с вертикальными отсеками для карт',1,(tub(False),)),
-              ('02-figures','Половина корпуса для двух лотков с фигурками',1,(tub(True),)),
-              ('03-lid-imen','Половина крышки «ИМЁН»',1,(lid(False).rotate((180,0,0)),)),
-              ('04-lid-more','Половина крышки «МОРЕ»',1,(lid(True).rotate((180,0,0)),)),
+    plates = [('00-fit','Петля, стык М4, калибр карты и два образца поверхности', 2, sample()),
+              ('01-cards','Фактурная половина корпуса с отсеками для карт',1,(tub(False,True),)),
+              ('02-figures','Фактурная половина корпуса для лотков с фигурками',1,(tub(True,True),)),
+              ('03-lid-imen','Фактурная половина крышки «ИМЁН», на ребре',1,(lid(False,True).rotate((0,90,0)),)),
+              ('04-lid-more','Фактурная половина крышки «МОРЕ», на ребре',1,(lid(True,True).rotate((0,-90,0)),)),
               ('05-hero-tray','Лоток 18 героев',1,(figure_tray(False),)),
               ('06-boss-tray','Лоток десяти боссов и фишек толпы',1,(figure_tray(True),)),
               ('07-token-tray','Четыре отсека под жетоны и кости',1,(token_tray(),)),
@@ -247,7 +263,7 @@ def main():
     for name,caption,columns,shapes in plates:
         keys = [('compact',f'{name}-{i+1}',1) for i in range(len(shapes))]
         meshes = {key:printable_mesh(shape,key[1]) for key,shape in zip(keys,shapes)}
-        placements = arrange(keys,meshes,columns,gap=7,margin=6)
+        placements = arrange(keys,meshes,columns,gap=7,margin=5.8)
         dest = DEST/(name+'.3mf')
         write_plate(dest,meshes,placements)
         check_plate(dest,[key[1] for key in keys],meshes,placements)

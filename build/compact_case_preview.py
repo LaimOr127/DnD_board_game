@@ -3,7 +3,7 @@
 import numpy as np
 from PIL import Image, ImageDraw
 
-from compact_case import AY, AZ, CROWDS, DEST, FLOOR, TRAY_H, W, figure_tray, lid, marker, token_tray, tub
+from compact_case import AY, AZ, CROWDS, DEST, FLOOR, TRAY_H, W, figure_tray, lid, marker, texture_sample, token_tray, tub
 from maps import font
 
 
@@ -46,6 +46,19 @@ def render(shape, size, color, front=True, accent=None):
     return Image.fromarray(image)
 
 
+def texture_preview():
+    paper,ink = '#eee8d8','#263c39'
+    page = Image.new('RGB',(1060,485),paper)
+    draw = ImageDraw.Draw(page)
+    draw.rectangle((0,0,1060,95),fill=ink)
+    draw.text((34,28),'Фактура наружных стенок',font=font(36,True,True),fill=paper)
+    for i,caption in enumerate(('Гладкий образец','Образец с фактурой')):
+        x = 26+515*i
+        page.paste(render(texture_sample(bool(i)),(484,300),'#83a36b'),(x,111))
+        draw.text((x+242,421),caption,font=font(22,True),fill=ink,anchor='ma')
+    page.save(DEST/'Фактура.png',optimize=True)
+
+
 def main():
     paper, ink, muted = '#eee8d8', '#263c39', '#526862'
     page = Image.new('RGB',(1250,965),paper)
@@ -72,6 +85,7 @@ def main():
     page.paste(render(marker('B1'),(215,128),'#a98554',False,(2.45,3.5,'#f3dfb5')),(1009,767))
     draw.text((1117,908),'B1–B2 · боссы',font=font(18,True),fill=ink,anchor='ma')
     page.save(DEST/'Схема.png',optimize=True)
+    texture_preview()
 
 
 if __name__ == '__main__':
