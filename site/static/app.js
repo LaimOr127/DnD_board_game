@@ -533,7 +533,7 @@ function renderLibrary(tab) {
   search.required = false;
   search.placeholder = "Например, искра или урон…";
   const list = el("div", null, "rule-body");
-  const printEdition = "/rules.pdf?v=paper";
+  const printEdition = "/rules.pdf?v=coop";
   const lessons = new Map([[1,"H07"],[2,"H01"],[3,"H16"],[22,"H04"],[23,"H16"],[24,"H14"]]);
   const draw = (openedPage) => {
     const q = search.value.toLowerCase().trim();
@@ -608,6 +608,7 @@ function render() {
   document.querySelectorAll('.topnav a:not([href="#table"])').forEach(a => { a.hidden = isFree; });
   $("freeTable").hidden = !isFree;
   $("freeRules").hidden = !isFree;
+  if (isFree || !state) $("campaignGuide").hidden = true;
   for (const area of document.querySelectorAll("#game > .game-grid, #game > .play-grid")) area.hidden = isFree;
   $("lobby").hidden = Boolean(state) || tab !== "table";
   $("game").hidden = !state || tab !== "table";
@@ -755,6 +756,7 @@ function renderGame() {
     ),
     partyRoster(),
   );
+  renderCampaignGuide(st, s);
   $("pageTag").textContent = st.ending ? "Эпилог" : "Читать вслух";
   $("storyTitle").textContent = st.title;
   $("storyBody").replaceChildren(el("p", st.text, "read-aloud"), ...st.echoes.map((x) => el("p", x, "echo")));
@@ -803,6 +805,47 @@ function renderGame() {
   drawPromises();
   controls();
   $("lastLog").replaceChildren(...state.log.slice(-2).map(logLine));
+}
+
+function renderCampaignGuide(st, scene) {
+  const panel = $("campaignGuide");
+  const task = st.task;
+  panel.hidden = !task;
+  if (!task) return;
+  const token = scene?.storyBell ? scene.tokens.find(t => t.kind === "hero" && t.ref === mine()) : null;
+  const inTurn = token && !scene.goal && scene.round <= 3 && scene.enemyRound !== scene.round;
+  const turn = inTurn ? scene.bellTurns?.[token.ref] : null;
+  const status = !inTurn ? "" : token.hp === 0 ? "Герой лежит. Попросите союзника помочь." :
+    (turn?.step ? "Шаг сделан." : "Шаг свободен.") + " " +
+    (turn?.action ? "Действие потрачено." : "Действие свободно.");
+  const key = JSON.stringify([state.code, task, status, st.decisionTrail, playing()]);
+  if (panel.dataset.key === key) return;
+  panel.dataset.key = key;
+  const trailWasOpen = panel.querySelector("details")?.open;
+  const title = el("h2", task.title);
+  title.id = "campaignTaskTitle";
+  const intro = add(el("div", null, "campaign-task"),
+    add(el("div"), el("p", "Задача отряда", "meta"), title,
+      task.detail ? el("p", task.detail) : null,
+      task.recorded?.length ? el("p", "Записано: " + task.recorded.join(", "), "small") : null,
+      playing() && status ? el("p", status, "campaign-turn small") : null),
+    task.counter ? el("span", task.counter, "campaign-counter") : null,
+  );
+  const focus = {story: ["К сцене", "storyTitle"], map: ["К карте", "mapTitle"], field: ["К действиям", "fieldTitle"]}[task.focus];
+  if (task.focus === "heroes" && playing()) intro.append(btn("Выбрать героя", showHeroes, "text-button"));
+  else if (focus) intro.append(btn(focus[0], () => $(focus[1]).focus(), "text-button"));
+  panel.replaceChildren(intro);
+  if (st.decisionTrail?.length) {
+    const rows = st.decisionTrail.map(row => add(el("li"),
+      el("strong", row.choice),
+      el("p", row.scene + " · " + row.people, "meta"),
+      el("p", row.destination, "meta"),
+      row.echo ? el("p", row.echo, "campaign-echo") : el("p", "Отклик ещё впереди.", "small muted"),
+    ));
+    const trail = details("Решения и их отклики", add(el("ul", null, "campaign-trail"), ...rows));
+    trail.open = Boolean(trailWasOpen);
+    panel.append(trail);
+  }
 }
 
 function bellPanel(scene) {
@@ -902,7 +945,7 @@ function approachDialog() {
   words.name = "approach";
   way.name = "method";
   modal("Свой ход за столом", el("p", state.story.title + " · " + realm().name, "meta"),
-    el("p", "Опишите действие и согласуйте исход с группой. При необходимости бросьте кубики. Ведущий может сверить показатели с бумажным листом."),
+    el("p", "Опишите действие и согласуйте исход с группой. При необходимости бросьте кубики и сверьте показатели с бумажным листом."),
     makeForm(() => command({op:"approach", scene:page, rev, way:way.value, text:words.value}, () => dlg.close()),
       field("Как действуете", way), field("Что произошло на поле", words), submit("Записать ход")));
 }
@@ -1211,9 +1254,19 @@ function controls() {
       if (!s.storyBell) {
         list.append(action("Ход противников", {op:"enemies"}), action("Следующий раунд", {op:"round"}));
       } else if (!s.goal && s.round <= 3 && s.tokens.some(t=>t.kind==="hero" && t.hp>0)) {
-        list.append(s.enemyRound === s.round ?
-          action(s.round === 3 ? "Завершить третий раунд" : "Следующий раунд",{op:"round"}) :
-          action("Ход противников",{op:"enemies"}));
+        if (s.enemyRound === s.round) {
+          list.append(action(s.round === 3 ? "Завершить третий раунд" : "Следующий раунд", {op:"round"}));
+        } else {
+          const ready = s.tokens.filter(t => t.kind === "hero" && t.hp > 0 &&
+            !(s.bellTurns?.[t.ref]?.action && s.bellTurns?.[t.ref]?.step));
+          list.append(ready.length ? btn("Ход противников", () => {
+            const rev = state.rev;
+            modal("Передать ход противникам",
+              el("p", "Шаг или действие ещё доступны у героев: " + ready.map(t => t.name).join(", ") +
+                ". Уточните у игроков, закончили ли они ходы."),
+              action("Передать ход", {op:"enemies", rev}, () => dlg.close(), "primary"));
+          }) : action("Ход противников", {op:"enemies"}));
+        }
       }
       const choose = options([
         ["simple", "Простая"],

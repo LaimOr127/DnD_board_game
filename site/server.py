@@ -288,6 +288,8 @@ class Handler(BaseHTTPRequestHandler):
                 file = STATIC / "index.html"
             elif path == "/rules.pdf":
                 file = PACK / "01 Правила.pdf"
+            elif path == "/first-evening.pdf":
+                file = PACK / "00 Первый вечер.pdf"
             elif path == "/board.pdf":
                 file = PACK / "03 Карты и планшет.pdf"
             elif match := re.fullmatch(r"/print-cards/(H[0-9]{2}|[MB][0-9]{3})\.pdf", path):

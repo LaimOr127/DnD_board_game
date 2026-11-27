@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#091d25" />
     <title>Море имён — игровой стол</title>
-    <link rel="stylesheet" href="/static/table.css?v=team" />
-    <script type="module" src="/static/app.js?v=paper"></script>
+    <link rel="stylesheet" href="/static/table.css?v=coop" />
+    <script type="module" src="/static/app.js?v=coop"></script>
   </head>
   <body>
     <a class="skip" href="#main">К содержимому</a>
@@ -60,6 +60,7 @@
             <div>
               <h3>Что положить на стол</h3>
               <p>Два d6, фигурки героев и лист переправы. Кубики можно бросать и на экране.</p>
+              <a href="/first-evening.pdf?v=coop">Скачать первый вечер для печати</a>
             </div>
           </aside>
         </div>
@@ -83,6 +84,7 @@
           <button id="invite" type="button"></button>
         </div>
         <nav id="sessionBar" aria-label="Управление встречей"></nav>
+        <section id="campaignGuide" class="campaign-guide" aria-labelledby="campaignTaskTitle" hidden></section>
         <section id="freeTable" aria-label="Свободный планшет" hidden></section>
         <details id="freeRules" class="realm-info" hidden>
           <summary>Как пользоваться свободным планшетом</summary>
@@ -92,7 +94,7 @@
         <div class="game-grid">
           <article class="map-section">
             <div class="map-caption">
-              <h2 id="mapTitle">Карта берегов</h2>
+              <h2 id="mapTitle" tabindex="-1">Карта берегов</h2>
               <span id="position"></span>
             </div>
             <div id="map"></div>
@@ -118,14 +120,14 @@
         <div class="play-grid">
           <article class="story-panel">
             <p class="section-kicker" id="pageTag">Читать вслух</p>
-            <h2 id="storyTitle"></h2>
+            <h2 id="storyTitle" tabindex="-1"></h2>
             <div id="storyBody"></div>
             <div id="choices" class="stack"></div>
             <section id="roadMeeting" aria-labelledby="meetingTitle" hidden></section>
           </article>
           <aside class="play-tools">
             <section>
-              <h2>Действия на поле</h2>
+              <h2 id="fieldTitle" tabindex="-1">Действия на поле</h2>
               <div id="controls"></div>
             </section>
             <section>

@@ -47,6 +47,7 @@ def main(output):
     shutil.copyfile(SITE / "static/index.html", output / "index.html")
     shutil.copyfile(SITE / "frame.js", static / "frame.js")
     shutil.copyfile(WORLD / "01 Правила.pdf", output / "rules.pdf")
+    shutil.copyfile(WORLD / "00 Первый вечер.pdf", output / "first-evening.pdf")
     shutil.copyfile(WORLD / "03 Карты и планшет.pdf", output / "board.pdf")
     shutil.copytree(WORLD / "Истории" / "Карты", output / "print-cards", dirs_exist_ok=True)
     (static / "lobby.json").write_text(json.dumps(engine.compendium(None), separators=(",", ":"), ensure_ascii=False), encoding="utf-8")

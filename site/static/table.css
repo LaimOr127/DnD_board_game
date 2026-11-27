@@ -107,6 +107,56 @@ textarea:focus-visible {
   width: min(100% - clamp(2rem, 10vw, 10rem), 1360px);
   margin: auto;
 }
+.campaign-guide {
+  margin: 0 0 1rem;
+  padding: clamp(0.8rem, 2vw, 1.25rem);
+  border: 1px solid var(--edge);
+  border-inline-start: 3px solid var(--gold);
+  background: var(--well);
+}
+.campaign-task {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  gap: 0.5rem 1rem;
+}
+.campaign-task > div {
+  flex: 1 1 20rem;
+}
+.campaign-task h2 {
+  font-size: clamp(1.25rem, 2.7vw, 1.9rem);
+  margin: 0.25rem 0 0.4rem;
+}
+.campaign-counter, .campaign-turn {
+  color: var(--gold);
+}
+.campaign-counter {
+  border-block-end: 1px solid var(--edge);
+  padding: 0.2rem 0.15rem;
+}
+.campaign-guide > details {
+  margin-top: 0.7rem;
+  border-block-start: 1px solid var(--edge);
+  padding-top: 0.55rem;
+}
+.campaign-trail {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  gap: 0.85rem 1.3rem;
+  padding: 0;
+  margin: 0.7rem 0 0;
+  list-style: none;
+}
+.campaign-trail li {
+  border-inline-start: 1px solid var(--edge);
+  padding-inline-start: 0.65rem;
+}
+.campaign-trail p {
+  margin-top: 0.2rem;
+}
+.campaign-echo {
+  color: var(--gold);
+}
 .mast {
   background: #0a1c24;
   color: #f8f5e9;

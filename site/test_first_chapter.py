@@ -87,3 +87,23 @@ class FirstChapterTest(unittest.TestCase):
         self.assertEqual("коромысло",self.scene["goal"])
         self.act(self.host,"story",scene="bell",choice="hold")
         self.assertEqual(1,self.party["street"])
+
+    def test_cooperative_guide_and_legacy_save(self):
+        before = service.snapshot(self.table, self.guest)["story"]
+        self.assertEqual("Раунд 1 из 3", before["task"]["counter"])
+        self.assertIsNone(before["decisionTrail"][0]["echo"])
+        self.assertEqual("Начало главы II", before["decisionTrail"][0]["destination"])
+        self.act(self.guest, "story", ok=False, scene="bell", choice="empty", paper=True)
+        self.act(self.host, "story", scene="bell", choice="empty", paper=True)
+        self.act(self.host, "story", ok=False, scene="bell", choice="empty", paper=True)
+
+        restored = E.restore(E.serial(self.table))
+        after = service.snapshot(restored, self.guest)["story"]
+        self.assertEqual(("0 из 2", "map"), (after["task"]["counter"], after["task"]["focus"]))
+        self.assertEqual(story.CALLBACKS["ribbon"], after["decisionTrail"][0]["echo"])
+        self.act(self.host, "travel", dest=3, faces=[6])
+        self.assertEqual("story", story.visible(self.table)["task"]["focus"])
+        self.act(self.host, "story", scene="records-0-3", choice="wall")
+        task = story.visible(self.table)["task"]
+        self.assertEqual(("1 из 2", ["Ольховое Княжество"], "map"),
+                         (task["counter"], task["recorded"], task["focus"]))

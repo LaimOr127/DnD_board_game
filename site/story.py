@@ -119,6 +119,84 @@ CALLBACKS = {
 }
 
 
+def campaign_task(table, s):
+    page, party, field = s["page"], table["party"], table["scene"]
+    if page == "epilogue":
+        return {"title": "Прочитайте эпилог", "detail": "Каждый может закончить историю своего героя.", "focus": "story"}
+    if page == "prologue" and not E.claimed(table):
+        return {"title": "Выберите героев", "detail": "Каждый игрок берёт своего героя. Затем отряд оставляет девочке один знак.", "focus": "heroes"}
+    if party["weatherDue"] or (party["fightDue"] and not field):
+        return {"title": "Разыграйте событие дороги", "detail": "Закройте непогоду или дорожную стычку перед следующей сценой.", "focus": "field"}
+    if page == "bell":
+        field = field or {}
+        if field.get("goal") or field.get("round", 1) > 3 or field and not E.living_heroes(field):
+            return {"title": "Запишите исход переправы", "detail": "Подтвердите итог в сцене и откройте вторую главу.", "focus": "story"}
+        round_no = field.get("round", 1)
+        if field.get("enemyRound") == round_no:
+            return {"title": f"Завершите раунд {round_no} из 3", "detail": "Противники уже действовали. Создатель стола завершает раунд.", "focus": "field"}
+        return {"title": "Спасите переправу за три раунда", "detail": "В звоннице удержите коромысло или спойте с Ладой. На отмели можно снять язык после победы над стражей.",
+                "counter": f"Раунд {round_no} из 3", "focus": "story"}
+    if page in ("records", "copies"):
+        realms = [E.realms[r["realm"] - 1][0] for r in s["records"]]
+        if page == "copies":
+            return {"title": "Решите, кому доверить копию", "detail": "Обсудите решение отрядом и отметьте хранителя второй копии.",
+                    "counter": "Записи " + " и ".join(realms), "focus": "story"}
+        if field:
+            return {"title": "Завершите встречу на поле", "detail": "После встречи вернитесь к поиску записей.",
+                    "counter": f"{len(realms)} из 2", "focus": "field"}
+        area = party["realm"]
+        here = area in WITNESSES and all(r["realm"] != area for r in s["records"])
+        detail = ("Здесь можно получить запись. Завершите местное дело, вылазку или потратьте день, чтобы списать строку со стены."
+                  if here else "Выберите на карте другое королевство с записью. Для слушания нужны сведения из двух разных мест.")
+        task = {"title": "Найдите две записи", "detail": detail, "counter": f"{len(realms)} из 2", "focus": "story" if here else "map"}
+        if realms:
+            task["recorded"] = realms
+        return task
+    if page in ("prologue", "gateRoad", "courtRoad", "heartRoad", "retry"):
+        area = 6 if page == "gateRoad" else 1
+        title = "Доберитесь до Красного Яра" if area == 6 else "Вернитесь во Вельн"
+        if party["realm"] != area:
+            return {"title": title, "detail": "Выберите следующий переход на карте.", "focus": "map"}
+        if field:
+            return {"title": "Завершите встречу на поле", "detail": "После встречи откройте текущую сцену.", "focus": "field"}
+        if page == "retry" and party["rested"]:
+            return {"title": "Вернитесь к Хранителю", "detail": "", "focus": "story"}
+    title = {
+        "prologue": "Оставьте девочке знак",
+        "gateRoad": "Встретьте Гира у ворот",
+        "gate": "Удержите ворота или договоритесь",
+        "courtRoad": "Начните слушание у Эйры",
+        "hearing": "Решите, чьи показания прозвучат",
+        "council": "Определите, чем закончится дело",
+        "original": "Распорядитесь оригиналом",
+        "heartRoad": "Войдите в Сердце",
+        "heart": "Решите, как пройти Хранителя",
+        "retry": "Восстановите силы перед возвращением",
+        "verdict": "Решите судьбу ключа",
+    }[page]
+    return {"title": title, "detail": "", "focus": "story"}
+
+
+def decision_trail(table, s):
+    page, chapter = s["page"], table["party"]["chapter"]
+    steps = (
+        ("prologue", "Девочка и лодочник", "Начало главы II", chapter >= 2),
+        ("copies", "Хранители копии", "Ворота Красного Яра", chapter >= 4 or page == "gate"),
+        ("gate", "Люди у ворот", "Слушание во Вельне", chapter >= 4 and page != "courtRoad"),
+    )
+    trail = []
+    for key, people, destination, arrived in steps:
+        choice = s["decisions"].get(key)
+        if not choice:
+            continue
+        title, _, _, options = PAGES[key]
+        label = dict(options).get(choice, "Попросили лодки Таша" if choice == "boats" else "")
+        if label:
+            trail.append({"scene": title, "choice": label, "people": people, "destination": destination,
+                          "echo": CALLBACKS.get(choice) if arrived else None})
+    return trail
+
+
 def echoes(table, s):
     page, choices = s["page"], s["decisions"]
     keys = {"records": ["prologue"], "gate": ["copies"], "hearing": ["gate"], "epilogue": ["prologue", "copies", "gate"]}.get(page, [])
@@ -202,6 +280,7 @@ def visible(table):
         "promises": promises.view(table, s), "verdictReceipt": s.get("verdictReceipt"),
         "milestones": s.get("milestones", []), "approaches": s.get("approaches", []),
         "paperChoices": [{"id": k, "label": v} for k,v in paper_choices],
+        "task": campaign_task(table, s), "decisionTrail": decision_trail(table, s),
     }
 
 
